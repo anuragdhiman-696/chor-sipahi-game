@@ -7,6 +7,11 @@ const BACKEND_URL = import.meta.env.PROD
   ? 'https://chor-sipahi-game.onrender.com' 
   : `http://${window.location.hostname}:5000`;
 
+// 👇 ADD THIS LINE HERE:
+const socket = io(BACKEND_URL, {
+  transports: ['websocket', 'polling']
+});
+
 const ROLE_CONFIG = {
   Raja: { emoji: '👑', color: '#ecc94b' },
   Wazir: { emoji: '🛡️', color: '#38bdf8' },
