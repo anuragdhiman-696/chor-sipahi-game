@@ -7,9 +7,12 @@ import cors from 'cors';
 const app = express();
 app.use(cors());
 
-const httpServer = createServer(app);
+// 1. Allow all connections (or your Vercel URL) for CORS
 const io = new Server(httpServer, {
-  cors: { origin: "*", methods: ["GET", "POST"] }
+  cors: {
+    origin: "*", 
+    methods: ["GET", "POST"]
+  }
 });
 
 const rooms = new Map();
@@ -230,6 +233,4 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 5000;
-httpServer.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
+httpServer.listen(PORT, '0.0.0.0', () => console.log(`🚀 Server running on port ${PORT}`));
