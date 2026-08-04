@@ -3,7 +3,9 @@ import { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 import './App.css'; // Pure CSS File Import
 
-const socket = io(`http://${window.location.hostname}:5000`);
+const BACKEND_URL = import.meta.env.PROD 
+  ? 'https://chor-sipahi-game.onrender.com' 
+  : `http://${window.location.hostname}:5000`;
 
 const ROLE_CONFIG = {
   Raja: { emoji: '👑', color: '#ecc94b' },
