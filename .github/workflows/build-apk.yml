@@ -24,11 +24,11 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install Project Dependencies
-        run: npm install
-
-      - name: Build Web App
-        run: npm run build
+      - name: Build React Client App
+        run: |
+          cd client
+          npm install
+          npm run build
 
       - name: Setup Cordova & Build APK
         run: |
@@ -36,11 +36,11 @@ jobs:
           cordova create app com.anurag.chorsipahi "Chor Sipahi"
           cd app
           rm -rf www/*
-          # Copy compiled build output (dist or build folder) into www
-          if [ -d "../dist" ]; then
-            cp -r ../dist/* www/
-          elif [ -d "../build" ]; then
-            cp -r ../build/* www/
+          # Copy compiled build output from client directory into Cordova www
+          if [ -d "../client/dist" ]; then
+            cp -r ../client/dist/* www/
+          elif [ -d "../client/build" ]; then
+            cp -r ../client/build/* www/
           fi
           cordova platform add android
           cordova plugin add cordova-plugin-whitelist || true
