@@ -36,10 +36,8 @@ jobs:
           cordova create app com.anurag.chorsipahi "Chor Sipahi"
           cd app
           rm -rf www/*
-          # Copy Vite dist folder contents to Cordova www directory
           cp -r ../client/dist/* www/
           cordova platform add android
-          cordova plugin add cordova-plugin-whitelist || true
           cordova build android --debug
 
       - name: Upload APK Artifact
