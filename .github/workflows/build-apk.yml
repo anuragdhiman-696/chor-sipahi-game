@@ -24,7 +24,7 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Build React Client App
+      - name: Build React Client
         run: |
           cd client
           npm install
@@ -36,12 +36,8 @@ jobs:
           cordova create app com.anurag.chorsipahi "Chor Sipahi"
           cd app
           rm -rf www/*
-          # Copy compiled build output from client directory into Cordova www
-          if [ -d "../client/dist" ]; then
-            cp -r ../client/dist/* www/
-          elif [ -d "../client/build" ]; then
-            cp -r ../client/build/* www/
-          fi
+          # Copy Vite dist folder contents to Cordova www directory
+          cp -r ../client/dist/* www/
           cordova platform add android
           cordova plugin add cordova-plugin-whitelist || true
           cordova build android --debug
