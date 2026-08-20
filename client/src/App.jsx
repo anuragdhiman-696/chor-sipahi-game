@@ -8,7 +8,7 @@ const BACKEND_URL = import.meta.env.PROD
   : `http://${window.location.hostname}:5000`;
 
 // 👇 ADD THIS LINE HERE:
-const socket = io("https://your-live-backend-url.com", {
+const socket = io("https://chor-sipahi-game.onrender.com", {
   transports: ["websocket", "polling"]
 });
 
