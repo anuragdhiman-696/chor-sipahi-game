@@ -4,7 +4,15 @@
     <description>Chor Sipahi Game</description>
     <author email="dev@example.com">Anurag Dhiman</author>
     <content src="index.html" />
+    
+    <!-- Allow access to external servers -->
     <access origin="*" />
+    <allow-navigation href="*" />
     <allow-intent href="http://*/*" />
     <allow-intent href="https://*/*" />
+    <allow-intent href="ws://*/*" />
+    <allow-intent href="wss://*/*" />
+    
+    <preference name="Scheme" value="https" />
+    <preference name="Hostname" value="localhost" />
 </widget>
