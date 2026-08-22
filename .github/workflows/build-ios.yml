@@ -53,8 +53,13 @@ jobs:
       - name: Compile iOS App (Unsigned)
         run: |
           cd app/platforms/ios
-          xcodebuild -project "Chor Sipahi.xcodeproj" \
-                     -scheme "Chor Sipahi" \
+          
+          # Auto-detect project file name (.xcodeproj)
+          PROJ_FILE=$(ls -d *.xcodeproj | head -n 1)
+          SCHEME_NAME=$(basename "$PROJ_FILE" .xcodeproj)
+
+          xcodebuild -project "$PROJ_FILE" \
+                     -scheme "$SCHEME_NAME" \
                      -configuration Release \
                      -sdk iphoneos \
                      CODE_SIGNING_ALLOWED=NO \
@@ -67,7 +72,7 @@ jobs:
         run: |
           cd app/platforms/ios
           mkdir -p build/Payload
-          cp -r "build/Release-iphoneos/Chor Sipahi.app" build/Payload/
+          cp -r build/Release-iphoneos/*.app build/Payload/
           cd build
           zip -r Chor-Sipahi.ipa Payload
 
