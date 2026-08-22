@@ -1,0 +1,64 @@
+name: Build iOS App
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build React Client
+        run: |
+          cd client
+          npm install
+          npm run build
+
+      - name: Setup Cordova & Prepare iOS
+        run: |
+          npm install -g cordova
+          cordova create app com.anurag.chorsipahi "Chor Sipahi"
+          cd app
+          rm -rf www/*
+          cp -r ../client/dist/* www/
+
+          # Copy app icon if present
+          if [ -f "../client/public/icon.png" ]; then
+            cp ../client/public/icon.png icon.png
+            sed -i '' '/<\/widget>/i \    <icon src="icon.png" \/>' config.xml
+          fi
+
+          cordova platform add ios
+          
+          # Build Xcode project without signing requirement
+          cordova build ios --emulator -- --codeSignIdentity="" --developmentTeam=""
+
+      - name: Zip iOS Build
+        run: |
+          cd app/platforms/ios/build/emulator
+          zip -r ../../../../../Chor-Sipahi-iOS.zip .
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest-ios
+          name: Chor Sipahi Game - iOS
+          body: |
+            🍎 **Chor Sipahi Game - iOS Release**
+            
+            - Compiled Xcode iOS app bundle
+            - Compatible with iOS Simulators and Xcode distribution
+          files: Chor-Sipahi-iOS.zip
