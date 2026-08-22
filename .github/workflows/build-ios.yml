@@ -46,14 +46,14 @@ jobs:
             '
           fi
 
-          # Prepare native Xcode workspace files
+          # Prepare native Xcode files
           cordova platform add ios
           cordova prepare ios
 
       - name: Compile iOS App (Unsigned)
         run: |
           cd app/platforms/ios
-          xcodebuild -workspace "Chor Sipahi.xcworkspace" \
+          xcodebuild -project "Chor Sipahi.xcodeproj" \
                      -scheme "Chor Sipahi" \
                      -configuration Release \
                      -sdk iphoneos \
@@ -80,5 +80,5 @@ jobs:
             🍎 **Chor Sipahi Game - iOS Release**
             
             - Includes unsigned `Chor-Sipahi.ipa`
-            - Installable via Sideloadly, AltStore, TrollStore, or local Xcode signing
+            - Compatible with sideloading tools (AltStore, Sideloadly) or local Xcode signing
           files: app/platforms/ios/build/Chor-Sipahi.ipa
