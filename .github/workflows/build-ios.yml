@@ -46,33 +46,34 @@ jobs:
             '
           fi
 
-          # Prepare native Xcode files
           cordova platform add ios
           cordova prepare ios
 
-      - name: Compile iOS App (Unsigned)
+      - name: Compile iOS App Bundle
         run: |
           cd app/platforms/ios
           
-          # Auto-detect project file name (.xcodeproj)
           PROJ_FILE=$(ls -d *.xcodeproj | head -n 1)
           SCHEME_NAME=$(basename "$PROJ_FILE" .xcodeproj)
 
           xcodebuild -project "$PROJ_FILE" \
                      -scheme "$SCHEME_NAME" \
                      -configuration Release \
-                     -sdk iphoneos \
+                     -sdk iphonesimulator \
                      CODE_SIGNING_ALLOWED=NO \
                      CODE_SIGNING_REQUIRED=NO \
                      CODE_SIGN_IDENTITY="" \
-                     PROVISIONING_PROFILE_SPECIFIER="" \
                      build
 
       - name: Package .ipa File
         run: |
           cd app/platforms/ios
           mkdir -p build/Payload
-          cp -r build/Release-iphoneos/*.app build/Payload/
+          
+          # Find and copy generated .app bundle
+          APP_PATH=$(find build/Release-iphonesimulator -name "*.app" | head -n 1)
+          cp -r "$APP_PATH" build/Payload/
+          
           cd build
           zip -r Chor-Sipahi.ipa Payload
 
@@ -85,5 +86,5 @@ jobs:
             🍎 **Chor Sipahi Game - iOS Release**
             
             - Includes unsigned `Chor-Sipahi.ipa`
-            - Compatible with sideloading tools (AltStore, Sideloadly) or local Xcode signing
+            - Compatible with iOS Simulators and local Xcode installation
           files: app/platforms/ios/build/Chor-Sipahi.ipa
