@@ -27,7 +27,7 @@ jobs:
           npm install
           npm run build
 
-      - name: Setup Cordova & Prepare iOS
+      - name: Setup Cordova & Prepare iOS Project
         run: |
           npm install -g cordova
           cordova create app com.anurag.chorsipahi "Chor Sipahi"
@@ -35,7 +35,7 @@ jobs:
           rm -rf www/*
           cp -r ../client/dist/* www/
 
-          # Safely inject icon into config.xml using Node.js
+          # Inject icon into config.xml safely using Node.js
           if [ -f "../client/public/icon.png" ]; then
             cp ../client/public/icon.png icon.png
             node -e '
@@ -46,14 +46,29 @@ jobs:
             '
           fi
 
+          # Prepare native Xcode workspace files
           cordova platform add ios
-          cordova build ios --emulator -- --codeSignIdentity="" --developmentTeam=""
+          cordova prepare ios
+
+      - name: Compile iOS App (Unsigned)
+        run: |
+          cd app/platforms/ios
+          xcodebuild -workspace "Chor Sipahi.xcworkspace" \
+                     -scheme "Chor Sipahi" \
+                     -configuration Release \
+                     -sdk iphoneos \
+                     CODE_SIGNING_ALLOWED=NO \
+                     CODE_SIGNING_REQUIRED=NO \
+                     CODE_SIGN_IDENTITY="" \
+                     PROVISIONING_PROFILE_SPECIFIER="" \
+                     build
 
       - name: Package .ipa File
         run: |
-          cd app/platforms/ios/build/emulator
-          mkdir -p Payload
-          cp -r "Chor Sipahi.app" Payload/
+          cd app/platforms/ios
+          mkdir -p build/Payload
+          cp -r "build/Release-iphoneos/Chor Sipahi.app" build/Payload/
+          cd build
           zip -r Chor-Sipahi.ipa Payload
 
       - name: Create GitHub Release
@@ -65,5 +80,5 @@ jobs:
             🍎 **Chor Sipahi Game - iOS Release**
             
             - Includes unsigned `Chor-Sipahi.ipa`
-            - Compatible with sideloading tools (AltStore, Sideloadly) or local Xcode signing
-          files: app/platforms/ios/build/emulator/Chor-Sipahi.ipa
+            - Installable via Sideloadly, AltStore, TrollStore, or local Xcode signing
+          files: app/platforms/ios/build/Chor-Sipahi.ipa
