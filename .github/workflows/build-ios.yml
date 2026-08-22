@@ -35,21 +35,26 @@ jobs:
           rm -rf www/*
           cp -r ../client/dist/* www/
 
-          # Copy app icon if present
+          # Safely inject icon into config.xml using Node.js
           if [ -f "../client/public/icon.png" ]; then
             cp ../client/public/icon.png icon.png
-            sed -i '' '/<\/widget>/i \    <icon src="icon.png" \/>' config.xml
+            node -e '
+              const fs = require("fs");
+              let config = fs.readFileSync("config.xml", "utf8");
+              config = config.replace("</widget>", "    <icon src=\"icon.png\" />\n</widget>");
+              fs.writeFileSync("config.xml", config);
+            '
           fi
 
           cordova platform add ios
-          
-          # Build Xcode project without signing requirement
           cordova build ios --emulator -- --codeSignIdentity="" --developmentTeam=""
 
-      - name: Zip iOS Build
+      - name: Package .ipa File
         run: |
           cd app/platforms/ios/build/emulator
-          zip -r ../../../../../Chor-Sipahi-iOS.zip .
+          mkdir -p Payload
+          cp -r "Chor Sipahi.app" Payload/
+          zip -r Chor-Sipahi.ipa Payload
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -59,6 +64,6 @@ jobs:
           body: |
             🍎 **Chor Sipahi Game - iOS Release**
             
-            - Compiled Xcode iOS app bundle
-            - Compatible with iOS Simulators and Xcode distribution
-          files: Chor-Sipahi-iOS.zip
+            - Includes unsigned `Chor-Sipahi.ipa`
+            - Compatible with sideloading tools (AltStore, Sideloadly) or local Xcode signing
+          files: app/platforms/ios/build/emulator/Chor-Sipahi.ipa
