@@ -5,6 +5,10 @@ on:
     branches: [ "main", "master" ]
   workflow_dispatch:
 
+# Grants permission to create Releases
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -38,18 +42,26 @@ jobs:
           rm -rf www/*
           cp -r ../client/dist/* www/
 
-          # Copy app icon if available
+          # Copy app icon if present
           if [ -f "../client/public/icon.png" ]; then
             cp ../client/public/icon.png icon.png
-            # Inject icon config into config.xml before closing </widget> tag
             sed -i '/<\/widget>/i \    <icon src="icon.png" \/>' config.xml
           fi
 
           cordova platform add android
           cordova build android --debug
 
-      - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
+          # Rename output APK to Chor-Sipahi.apk
+          mv platforms/android/app/build/outputs/apk/debug/app-debug.apk platforms/android/app/build/outputs/apk/debug/Chor-Sipahi.apk
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: Chor-Sipahi-Game-APK
-          path: app/platforms/android/app/build/outputs/apk/debug/app-debug.apk
+          tag_name: latest
+          name: Chor Sipahi Game
+          body: |
+            🎮 **Chor Sipahi Game - Android Release**
+            
+            - Pre-configured live multiplayer backend
+            - Ready for direct installation on Android
+          files: app/platforms/android/app/build/outputs/apk/debug/Chor-Sipahi.apk
