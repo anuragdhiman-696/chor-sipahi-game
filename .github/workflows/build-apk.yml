@@ -37,6 +37,14 @@ jobs:
           cd app
           rm -rf www/*
           cp -r ../client/dist/* www/
+
+          # Copy app icon if available
+          if [ -f "../client/public/icon.png" ]; then
+            cp ../client/public/icon.png icon.png
+            # Inject icon config into config.xml before closing </widget> tag
+            sed -i '/<\/widget>/i \    <icon src="icon.png" \/>' config.xml
+          fi
+
           cordova platform add android
           cordova build android --debug
 
