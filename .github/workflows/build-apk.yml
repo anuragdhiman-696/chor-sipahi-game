@@ -42,10 +42,15 @@ jobs:
           rm -rf www/*
           cp -r ../client/dist/* www/
 
-          # Copy app icon if present
+          # Safely inject icon into config.xml using Node.js
           if [ -f "../client/public/icon.png" ]; then
             cp ../client/public/icon.png icon.png
-            sed -i '/<\/widget>/i \    <icon src="icon.png" \/>' config.xml
+            node -e '
+              const fs = require("fs");
+              let config = fs.readFileSync("config.xml", "utf8");
+              config = config.replace("</widget>", "    <icon src=\"icon.png\" />\n</widget>");
+              fs.writeFileSync("config.xml", config);
+            '
           fi
 
           cordova platform add android
@@ -57,8 +62,8 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: latest
-          name: Chor Sipahi Game
+          tag_name: build-${{ github.run_number }}
+          name: Chor Sipahi Game (Build #${{ github.run_number }})
           body: |
             🎮 **Chor Sipahi Game - Android Release**
             
