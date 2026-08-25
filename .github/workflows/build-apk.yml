@@ -2,138 +2,52 @@ name: Build Android APK
 
 on:
   push:
-    branches: ["main", "master"]
-  workflow_dispatch:
-
-permissions:
-  contents: write
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+    - name: Checkout Repository
+      uses: actions/checkout@v3
 
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: 18
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
+    - name: Install Client Dependencies
+      run: |
+        cd client
+        npm install
 
-      - name: Build React Client
-        working-directory: client
-        run: |
-          npm install
-          npm run build
+    - name: Build Frontend
+      run: |
+        cd client
+        npm run build
 
-      - name: Setup Cordova & Build APK
-        run: |
-          npm install -g cordova
+    - name: Setup Java JDK
+      uses: actions/setup-java@v3
+      with:
+        distribution: 'zulu'
+        java-version: '17'
 
-          echo "Creating Cordova project..."
-          cordova create app com.anurag.chorsipahi "Chor Sipahi"
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v2
 
-          cd app
+    - name: Install Cordova
+      run: npm install -g cordova
 
-          echo "Copying React build..."
-          rm -rf www/*
-          cp -r ../client/dist/* www/
+    - name: Prepare Cordova Platform & Build APK
+      run: |
+        cordova platform add android || true
+        cordova build android --no-telemetry
 
-          echo "Copying icon..."
-          if [ -f "../client/public/icon.png" ]; then
-            cp ../client/public/icon.png icon.png
-          fi
-
-          echo "Configuring microphone permissions..."
-
-          node <<'EOF'
-          const fs = require("fs");
-
-          let xml = fs.readFileSync("config.xml", "utf8");
-
-          // Add Android namespace to the root widget
-          if (!xml.includes("xmlns:android=")) {
-            xml = xml.replace(
-              "<widget",
-              '<widget xmlns:android="http://schemas.android.com/apk/res/android"'
-            );
-          }
-
-          // Add Android microphone permissions
-          const androidConfig = `
-              <platform name="android">
-                  <config-file target="AndroidManifest.xml" parent="/manifest">
-                      <uses-permission android:name="android.permission.RECORD_AUDIO" />
-                      <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
-                  </config-file>
-              </platform>
-          `;
-
-          xml = xml.replace("</widget>", androidConfig + "\n</widget>");
-
-          // WebView settings
-          const preferences = `
-              <preference name="MediaPlaybackRequiresUserAction" value="false" />
-              <preference name="AllowInlineMediaPlayback" value="true" />
-          `;
-
-          xml = xml.replace("</widget>", preferences + "\n</widget>");
-
-          // Add icon
-          if (fs.existsSync("icon.png")) {
-            xml = xml.replace(
-              "</widget>",
-              '    <icon src="icon.png" />\n</widget>'
-            );
-          }
-
-          fs.writeFileSync("config.xml", xml);
-
-          console.log("config.xml configured successfully");
-          EOF
-
-          echo "Installing Cordova Android 15.1.0..."
-          cordova platform add android@15.1.0
-
-          echo "Installing media capture plugin..."
-          cordova plugin add cordova-plugin-media-capture
-
-          echo "Installed Cordova platforms:"
-          cordova platform ls
-
-          echo "Building APK..."
-          cordova build android --debug
-
-          echo "Renaming APK..."
-          mv \
-            platforms/android/app/build/outputs/apk/debug/app-debug.apk \
-            platforms/android/app/build/outputs/apk/debug/Chor-Sipahi.apk
-
-          echo "APK successfully built!"
-
-      - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Chor-Sipahi-APK
-          path: app/platforms/android/app/build/outputs/apk/debug/Chor-Sipahi.apk
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: build-${{ github.run_number }}
-          name: Chor Sipahi Game (Build #${{ github.run_number }})
-          body: |
-            🎮 Chor Sipahi Game - Android Release
-
-            Build #${{ github.run_number }}
-
-            Cordova Android 15.1.0
-            Microphone permissions enabled
-          files: app/platforms/android/app/build/outputs/apk/debug/Chor-Sipahi.apk
+    - name: Upload APK Artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: app-debug.apk
+        path: platforms/android/app/build/outputs/apk/debug/app-debug.apk

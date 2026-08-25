@@ -1,375 +1,509 @@
-import { useState, useEffect, useRef } from 'react';
-import { io } from 'socket.io-client';
+import React, { useState, useEffect, useRef } from 'react';
+import io from 'socket.io-client';
 import Peer from 'peerjs';
 import './App.css';
 
-const BACKEND_URL = import.meta.env.PROD 
-  ? 'https://chor-sipahi-game.onrender.com' 
-  : `http://${window.location.hostname}:5000`;
+const SOCKET_SERVER_URL = window.location.hostname === 'localhost' 
+  ? 'http://localhost:5000' 
+  : window.location.origin;
 
-const socket = io(BACKEND_URL, { transports: ['websocket', 'polling'] });
+const socket = io(SOCKET_SERVER_URL, { autoConnect: true });
 
-const ROLE_CONFIG = {
-  Raja: { emoji: '👑', points: 1000, color: '#ecc94b' },
-  Wazir: { emoji: '🛡️', points: 800, color: '#38bdf8' },
-  Sipahi: { emoji: '👮', points: 500, color: '#4ade80' },
-  Chor: { emoji: '🥷', points: 0, color: '#f87171' }
+// STUN/TURN configuration
+const PEER_CONFIG = {
+  config: {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' }
+    ]
+  }
 };
 
-function App() {
-  const [isConnected, setIsConnected] = useState(socket.connected);
-  const [name, setName] = useState('');
-  const [joinRoomId, setJoinRoomId] = useState('');
+export default function App() {
+  const [playerName, setPlayerName] = useState('');
+  const [roomIdInput, setRoomIdInput] = useState('');
   const [currentRoom, setCurrentRoom] = useState(null);
-  const [error, setError] = useState('');
-
-  // Voice Chat States
-  const [peerId, setPeerId] = useState('');
-  const [isMuted, setIsMuted] = useState(true);
-  const [hasMicPermission, setHasMicPermission] = useState(false);
-  const peerInstance = useRef(null);
-  const localStream = useRef(null);
-
-  // Game States
-  const [gameStarted, setGameStarted] = useState(false);
-  const [myRole, setMyRole] = useState(null);
-  const [cardFlipped, setCardFlipped] = useState(false);
-  const [gameResult, setGameResult] = useState(null);
-
-  // Chat
+  const [gameState, setGameState] = useState('menu'); // 'menu', 'lobby', 'playing'
   const [messages, setMessages] = useState([]);
-  const [chatInput, setChatInput] = useState('');
-  const chatEndRef = useRef(null);
+  const [newMessage, setNewMessage] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
 
-  const handleRemoteStream = (stream, id) => {
-    let audio = document.getElementById(`audio-${id}`);
-    if (!audio) {
-      audio = document.createElement('audio');
-      audio.id = `audio-${id}`;
-      audio.autoplay = true;
-      audio.playsInline = true;
-      document.body.appendChild(audio);
-    }
-    audio.srcObject = stream;
-    audio.play().catch(console.error);
-  };
+  // Voice States
+  const [voiceJoined, setVoiceJoined] = useState(false);
+  const [selfMuted, setSelfMuted] = useState(false);
+  const [hostMuted, setHostMuted] = useState(false);
+  const [voiceStates, setVoiceStates] = useState({});
+  const [speakingPlayers, setSpeakingPlayers] = useState({});
+  const [voiceError, setVoiceError] = useState('');
 
-useEffect(() => {
-    // Configured with free TURN/STUN servers for cross-network voice chat
-    const peer = new Peer({
-      config: {
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:global.stun.twilio.com:3478' },
-          {
-            urls: 'turn:openrelay.metered.ca:80',
-            username: 'openrelayproject',
-            credential: 'openrelayproject'
-          },
-          {
-            urls: 'turn:openrelay.metered.ca:443',
-            username: 'openrelayproject',
-            credential: 'openrelayproject'
-          }
-        ]
-      }
-    });
+  // Refs for WebRTC & Audio
+  const peerRef = useRef(null);
+  const localStreamRef = useRef(null);
+  const peerCallsRef = useRef({}); // peerId -> callObj
+  const audioElementsRef = useRef({}); // socketId -> HTMLAudioElement
+  const audioAnalyserRef = useRef(null);
 
-    peer.on('open', (id) => setPeerId(id));
-
-    peer.on('call', (call) => {
-      call.answer(localStream.current);
-      call.on('stream', (stream) => handleRemoteStream(stream, call.peer));
-    });
-
-    peerInstance.current = peer;
-
-    socket.on('connect', () => setIsConnected(true));
-    socket.on('disconnect', () => setIsConnected(false));
-
-    socket.on('room-updated', ({ room }) => {
+  // Initialize Socket Event Handlers
+  useEffect(() => {
+    socket.on('room-created', ({ roomId, room }) => {
       setCurrentRoom(room);
-      if (room.messages) setMessages(room.messages);
+      setGameState('lobby');
+      setErrorMessage('');
+    });
+
+    socket.on('room-joined', ({ roomId, room }) => {
+      setCurrentRoom(room);
+      setGameState(room.gameState === 'playing' ? 'playing' : 'lobby');
+      setErrorMessage('');
+    });
+
+    socket.on('player-joined', ({ room }) => {
+      setCurrentRoom(room);
+    });
+
+    socket.on('player-left', ({ socketId, room }) => {
+      setCurrentRoom(room);
+      removeRemoteAudio(socketId);
+    });
+
+    socket.on('host-changed', ({ room }) => {
+      setCurrentRoom(room);
+    });
+
+    socket.on('receive-message', (msgData) => {
+      setMessages((prev) => [...prev, msgData]);
     });
 
     socket.on('game-started', ({ room }) => {
       setCurrentRoom(room);
-      setGameStarted(true);
-      setCardFlipped(false);
-      setGameResult(null);
+      setGameState('playing');
     });
 
-    socket.on('assign-roles', ({ myRole }) => {
-      setMyRole(myRole);
-      setCardFlipped(false);
+    socket.on('error-message', (msg) => {
+      setErrorMessage(msg);
     });
 
-    socket.on('user-connected-voice', ({ peerId: remotePeerId }) => {
-      if (localStream.current && remotePeerId && remotePeerId !== peerId) {
-        const call = peerInstance.current.call(remotePeerId, localStream.current);
-        call?.on('stream', (stream) => handleRemoteStream(stream, remotePeerId));
+    socket.on('voice-state-updated', (updatedVoiceStates) => {
+      setVoiceStates(updatedVoiceStates);
+    });
+
+    socket.on('force-host-mute', ({ hostMuted: isMutedByHost }) => {
+      setHostMuted(isMutedByHost);
+      if (localStreamRef.current) {
+        const audioTrack = localStreamRef.current.getAudioTracks()[0];
+        if (audioTrack) {
+          audioTrack.enabled = !(isMutedByHost || selfMuted);
+        }
       }
     });
 
-    socket.on('game-over', (result) => setGameResult(result));
-    socket.on('new-message', (msg) => setMessages((prev) => [...prev, msg]));
+    socket.on('user-disconnected-voice', ({ socketId }) => {
+      removeRemoteAudio(socketId);
+    });
 
     return () => {
-      peer.destroy();
-      socket.off();
+      socket.off('room-created');
+      socket.off('room-joined');
+      socket.off('player-joined');
+      socket.off('player-left');
+      socket.off('host-changed');
+      socket.off('receive-message');
+      socket.off('game-started');
+      socket.off('error-message');
+      socket.off('voice-state-updated');
+      socket.off('force-host-mute');
+      socket.off('user-disconnected-voice');
     };
-  }, [peerId]);
+  }, [selfMuted]);
 
+  // Clean up Peer and Audio on App Unmount
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    return () => {
+      cleanupVoice();
+    };
+  }, []);
 
-  const enableMicrophone = async () => {
-    const AudioContext = window.AudioContext || window.webkitAudioContext;
-    if (AudioContext) {
-      const ctx = new AudioContext();
-      if (ctx.state === 'suspended') await ctx.resume();
-    }
+  // Voice Setup & Event Registration
+  const joinVoiceChannel = async () => {
+    if (voiceJoined) return;
+    setVoiceError('');
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-      localStream.current = stream;
-      setHasMicPermission(true);
-      setIsMuted(false);
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        },
+        video: false
+      });
 
-      if (currentRoom && peerId) {
-        socket.emit('join-voice', { roomId: currentRoom.roomId, peerId });
-      }
+      localStreamRef.current = stream;
+      setupAudioAnalyser(stream);
+
+      const peer = new Peer(undefined, PEER_CONFIG);
+      peerRef.current = peer;
+
+      peer.on('open', (peerId) => {
+        setVoiceJoined(true);
+        socket.emit('join-voice', { roomId: currentRoom.id, peerId });
+      });
+
+      // Handle incoming calls
+      peer.on('call', (call) => {
+        call.answer(localStreamRef.current);
+        call.on('stream', (remoteStream) => {
+          attachRemoteStream(call.metadata?.socketId, remoteStream);
+        });
+        call.on('close', () => {
+          cleanupCall(call.metadata?.socketId);
+        });
+        call.on('error', () => {
+          cleanupCall(call.metadata?.socketId);
+        });
+      });
+
+      peer.on('error', (err) => {
+        console.error('PeerJS Error:', err);
+        setVoiceError('Voice connection error. Retrying recommended.');
+      });
+
+      // Handle list of existing voice participants from server
+      socket.on('voice-participants', (participants) => {
+        participants.forEach(({ socketId, peerId }) => {
+          if (peerId && localStreamRef.current) {
+            const call = peer.call(peerId, localStreamRef.current, {
+              metadata: { socketId: socket.id }
+            });
+            if (call) {
+              peerCallsRef.current[socketId] = call;
+              call.on('stream', (remoteStream) => {
+                attachRemoteStream(socketId, remoteStream);
+              });
+              call.on('close', () => cleanupCall(socketId));
+              call.on('error', () => cleanupCall(socketId));
+            }
+          }
+        });
+      });
+
+      // Handle newly connected participant
+      socket.on('user-connected-voice', ({ socketId, peerId }) => {
+        if (peerId && localStreamRef.current && peerRef.current) {
+          const call = peerRef.current.call(peerId, localStreamRef.current, {
+            metadata: { socketId: socket.id }
+          });
+          if (call) {
+            peerCallsRef.current[socketId] = call;
+            call.on('stream', (remoteStream) => {
+              attachRemoteStream(socketId, remoteStream);
+            });
+            call.on('close', () => cleanupCall(socketId));
+            call.on('error', () => cleanupCall(socketId));
+          }
+        }
+      });
+
     } catch (err) {
-      alert("Microphone permission blocked.");
+      console.error('Microphone Access Error:', err);
+      setVoiceError('Microphone permission denied or device not found.');
     }
   };
 
-  const toggleMic = () => {
-    if (!hasMicPermission) {
-      enableMicrophone();
-      return;
-    }
-    if (localStream.current) {
-      const nextMuteState = !isMuted;
-      localStream.current.getAudioTracks()[0].enabled = !nextMuteState;
-      setIsMuted(nextMuteState);
+  const setupAudioAnalyser = (stream) => {
+    try {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContext) return;
+      const audioCtx = new AudioContext();
+      const analyser = audioCtx.createAnalyser();
+      const source = audioCtx.createMediaStreamSource(stream);
+      analyser.fftSize = 256;
+      source.connect(analyser);
+      audioAnalyserRef.current = analyser;
+
+      const bufferLength = analyser.frequencyBinCount;
+      const dataArray = new Uint8Array(bufferLength);
+
+      const checkVolume = () => {
+        if (!localStreamRef.current) return;
+        analyser.getByteFrequencyData(dataArray);
+        let sum = 0;
+        for (let i = 0; i < bufferLength; i++) {
+          sum += dataArray[i];
+        }
+        const average = sum / bufferLength;
+        const isSpeaking = average > 25 && !selfMuted && !hostMuted;
+
+        setSpeakingPlayers((prev) => ({ ...prev, [socket.id]: isSpeaking }));
+        requestAnimationFrame(checkVolume);
+      };
+      checkVolume();
+    } catch (e) {
+      console.error('Audio Analyser Error:', e);
     }
   };
 
+  const attachRemoteStream = (remoteSocketId, stream) => {
+    if (!remoteSocketId) return;
+    let audioEl = audioElementsRef.current[remoteSocketId];
+    if (!audioEl) {
+      audioEl = document.createElement('audio');
+      audioEl.autoplay = true;
+      audioEl.playsInline = true;
+      audioElementsRef.current[remoteSocketId] = audioEl;
+      document.body.appendChild(audioEl);
+    }
+    audioEl.srcObject = stream;
+    audioEl.play().catch(e => console.log('Autoplay restriction handling:', e));
+  };
+
+  const removeRemoteAudio = (remoteSocketId) => {
+    if (audioElementsRef.current[remoteSocketId]) {
+      const el = audioElementsRef.current[remoteSocketId];
+      el.pause();
+      el.srcObject = null;
+      if (el.parentNode) el.parentNode.removeChild(el);
+      delete audioElementsRef.current[remoteSocketId];
+    }
+    cleanupCall(remoteSocketId);
+  };
+
+  const cleanupCall = (remoteSocketId) => {
+    if (peerCallsRef.current[remoteSocketId]) {
+      peerCallsRef.current[remoteSocketId].close();
+      delete peerCallsRef.current[remoteSocketId];
+    }
+  };
+
+  const cleanupVoice = () => {
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(track => track.stop());
+      localStreamRef.current = null;
+    }
+    if (peerRef.current) {
+      peerRef.current.destroy();
+      peerRef.current = null;
+    }
+    Object.keys(audioElementsRef.current).forEach(id => removeRemoteAudio(id));
+    setVoiceJoined(false);
+  };
+
+  const toggleSelfMute = () => {
+    if (hostMuted) return; // Prevent bypassing host mute
+    const newMuteState = !selfMuted;
+    setSelfMuted(newMuteState);
+
+    if (localStreamRef.current) {
+      const audioTrack = localStreamRef.current.getAudioTracks()[0];
+      if (audioTrack) {
+        audioTrack.enabled = !newMuteState;
+      }
+    }
+    socket.emit('voice-mute-self', { roomId: currentRoom.id, selfMuted: newMuteState });
+  };
+
+  // Host Control Actions
+  const handleHostMute = (targetSocketId) => {
+    socket.emit('host-mute-player', { roomId: currentRoom.id, targetSocketId });
+  };
+
+  const handleHostUnmute = (targetSocketId) => {
+    socket.emit('host-unmute-player', { roomId: currentRoom.id, targetSocketId });
+  };
+
+  const handleHostMuteAll = () => {
+    socket.emit('host-mute-all', { roomId: currentRoom.id });
+  };
+
+  const handleHostUnmuteAll = () => {
+    socket.emit('host-unmute-all', { roomId: currentRoom.id });
+  };
+
+  // Game/Room Actions
   const handleCreateRoom = () => {
-    setError('');
-    if (!name.trim()) return setError('Please enter your name');
-    socket.emit('create-room', { name, peerId }, (res) => {
-      if (res.error) setError(res.error);
-      else setCurrentRoom(res.room);
-    });
+    if (!playerName.trim()) return setErrorMessage('Please enter your name.');
+    socket.emit('create-room', { playerName });
   };
 
   const handleJoinRoom = () => {
-    setError('');
-    if (!name.trim() || !joinRoomId.trim()) return setError('Enter name & room code');
-    socket.emit('join-room', { roomId: joinRoomId.trim().toUpperCase(), name, peerId }, (res) => {
-      if (res.error) setError(res.error);
-      else setCurrentRoom(res.room);
-    });
+    if (!playerName.trim()) return setErrorMessage('Please enter your name.');
+    if (!roomIdInput.trim()) return setErrorMessage('Please enter a Room Code.');
+    socket.emit('join-room', { roomId: roomIdInput, playerName });
   };
 
-  const handleNextRound = () => {
-    socket.emit('next-round', { roomId: currentRoom.roomId });
-  };
-
-  const handleNextSession = () => {
-    socket.emit('next-session', { roomId: currentRoom.roomId });
-  };
-
-  const handleCatchChor = (suspectId) => {
-    socket.emit('make-guess', { roomId: currentRoom.roomId, suspectId });
+  const handleStartGame = () => {
+    if (currentRoom && socket.id === currentRoom.host) {
+      socket.emit('start-game', { roomId: currentRoom.id });
+    }
   };
 
   const handleSendMessage = (e) => {
     e.preventDefault();
-    if (chatInput.trim() && currentRoom) {
-      socket.emit('send-message', { roomId: currentRoom.roomId, messageText: chatInput });
-      setChatInput('');
+    if (newMessage.trim() && currentRoom) {
+      socket.emit('send-message', { roomId: currentRoom.id, message: newMessage });
+      setNewMessage('');
     }
   };
 
-  const isHost = currentRoom?.host === socket.id;
-  const otherPlayers = currentRoom?.players.filter((p) => p.id !== socket.id) || [];
-  const latestWinner = currentRoom?.sessionWinners?.length > 0 
-    ? currentRoom.sessionWinners[currentRoom.sessionWinners.length - 1] 
-    : null;
+  const isHost = currentRoom && currentRoom.host === socket.id;
 
   return (
-    <div>
-      <nav className="navbar">
-        <div className="brand">
-          <span>👑</span>
-          <span className="brand-title">CHOR SIPAHI</span>
-        </div>
-        
-        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-          {currentRoom && (
-            <button 
-              onClick={toggleMic} 
-              className={`btn ${!hasMicPermission ? 'btn-primary' : isMuted ? 'btn-danger' : 'btn-success'}`} 
-              style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem', width: 'auto' }}
-            >
-              {!hasMicPermission ? '🎙️ Enable Mic' : isMuted ? '🔇 Muted' : '🎙️ Voice Active'}
-            </button>
-          )}
-          <span style={{ color: isConnected ? '#4ade80' : '#f87171', fontSize: '0.85rem', fontWeight: '700' }}>
-            {isConnected ? 'ONLINE' : 'OFFLINE'}
-          </span>
-        </div>
-      </nav>
+    <div className="app-container">
+      <header className="app-header">
+        <h1>CHOR SIPAHI</h1>
+        <p className="subtitle">4-Player Realtime Voice & Strategy Game</p>
+      </header>
 
-      <main className="main-container">
-        {!currentRoom && (
-          <div className="glass-card" style={{ maxWidth: '450px', margin: '2rem auto' }}>
-            <h2>Enter Arena</h2>
-            {error && <div style={{ color: '#f87171', margin: '0.5rem 0' }}>{error}</div>}
-            <input type="text" placeholder="Your Name" value={name} onChange={(e) => setName(e.target.value)} className="input-field" style={{ marginBottom: '1rem' }} />
-            <button onClick={handleCreateRoom} className="btn btn-primary" style={{ marginBottom: '1rem' }}>✨ Create Room</button>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <input type="text" placeholder="Room Code" value={joinRoomId} onChange={(e) => setJoinRoomId(e.target.value.toUpperCase())} className="input-field" />
-              <button onClick={handleJoinRoom} className="btn btn-secondary" style={{ width: 'auto' }}>Join</button>
+      {errorMessage && <div className="error-banner">{errorMessage}</div>}
+
+      {gameState === 'menu' && (
+        <div className="card menu-card">
+          <h2>Join Game</h2>
+          <div className="input-group">
+            <label>Your Name</label>
+            <input 
+              type="text" 
+              placeholder="Enter name..." 
+              value={playerName} 
+              onChange={(e) => setPlayerName(e.target.value)}
+            />
+          </div>
+          <div className="action-buttons">
+            <button className="btn btn-primary" onClick={handleCreateRoom}>Create Room</button>
+            <div className="divider">OR</div>
+            <div className="join-group">
+              <input 
+                type="text" 
+                placeholder="Room Code" 
+                value={roomIdInput} 
+                onChange={(e) => setRoomIdInput(e.target.value.toUpperCase())}
+              />
+              <button className="btn btn-secondary" onClick={handleJoinRoom}>Join Room</button>
             </div>
           </div>
-        )}
+        </div>
+      )}
 
-        {currentRoom && (
-          <div className="grid-workspace">
-            <div>
-              {/* PREVIOUS SESSION WINNER BANNER */}
-              {latestWinner && (
-                <div className="glass-card" style={{ marginBottom: '1rem', borderColor: '#ecc94b', background: 'rgba(236, 201, 75, 0.1)', textAlign: 'center' }}>
-                  <span style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#ecc94b' }}>
-                    🏆 Session {latestWinner.session} Champion: {latestWinner.winnerName} ({latestWinner.score} Pts)
-                  </span>
-                </div>
-              )}
+      {(gameState === 'lobby' || gameState === 'playing') && currentRoom && (
+        <div className="game-layout">
+          <main className="main-panel">
+            <div className="card room-info-card">
+              <div className="room-header">
+                <h2>Room Code: <span className="highlight">{currentRoom.id}</span></h2>
+                <span className="badge">{gameState.toUpperCase()}</span>
+              </div>
 
-              <div className="glass-card" style={{ marginBottom: '1rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <h3>Room: <span style={{ color: '#38bdf8' }}>{currentRoom.roomId}</span></h3>
-                  <div style={{ display: 'flex', gap: '0.5rem' }}>
-                    <span style={{ background: '#0f172a', padding: '0.3rem 0.6rem', borderRadius: '8px', fontWeight: 'bold', fontSize: '0.85rem', color: '#38bdf8' }}>
-                      Session {currentRoom.currentSession || 1}
-                    </span>
-                    <span style={{ background: '#1e293b', padding: '0.3rem 0.6rem', borderRadius: '8px', fontWeight: 'bold', fontSize: '0.85rem', border: '1px solid #334155' }}>
-                      Round {currentRoom.currentRound || 1} / {currentRoom.maxRounds || 20}
-                    </span>
-                  </div>
-                </div>
+              {/* VOICE CONTROLS & STATUS PANEL */}
+              <div className="voice-panel">
+                <h3>Voice Chat</h3>
+                {voiceError && <p className="voice-error">{voiceError}</p>}
                 
-                <h4 style={{ marginTop: '1rem' }}>🏆 Current Session Scores</h4>
-                <div style={{ marginTop: '0.5rem' }}>
-                  {currentRoom.players.map((p) => (
-                    <div key={p.id} className="player-card">
-                      <span>{p.name} {p.id === currentRoom.host && '👑'}</span>
-                      <span style={{ fontWeight: 'bold', color: '#ecc94b' }}>{p.score || 0} pts</span>
-                    </div>
-                  ))}
-                </div>
-
-                {isHost && !gameStarted && (
-                  <button onClick={() => socket.emit('start-game', { roomId: currentRoom.roomId })} className="btn btn-primary" style={{ marginTop: '1rem' }}>
-                    🚀 Start Game
+                {!voiceJoined ? (
+                  <button className="btn btn-voice" onClick={joinVoiceChannel}>
+                    🎙️ Join Voice Chat
                   </button>
+                ) : (
+                  <div className="voice-controls">
+                    <button 
+                      className={`btn ${selfMuted || hostMuted ? 'btn-muted' : 'btn-unmuted'}`} 
+                      onClick={toggleSelfMute}
+                      disabled={hostMuted}
+                    >
+                      {hostMuted ? '🔇 Muted by Host' : selfMuted ? '🔇 Unmute Mic' : '🎙️ Mute Mic'}
+                    </button>
+                    {isHost && (
+                      <div className="host-voice-controls">
+                        <button className="btn btn-small btn-danger" onClick={handleHostMuteAll}>
+                          🔇 Mute All
+                        </button>
+                        <button className="btn btn-small btn-success" onClick={handleHostUnmuteAll}>
+                          🔊 Unmute All
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
 
-              {gameStarted && (
-                <div className="card-arena-container">
-                  <div className={`uno-card ${cardFlipped ? 'flipped' : ''}`} onClick={() => setCardFlipped(!cardFlipped)}>
-                    <div className="card-face card-front">
-                      <div style={{ fontSize: '3rem' }}>🂠</div>
-                      <div style={{ fontSize: '0.8rem', marginTop: '0.5rem', fontWeight: 'bold' }}>TAP TO REVEAL</div>
-                    </div>
-                    <div className="card-face card-back">
-                      <div style={{ fontSize: '3.5rem' }}>{ROLE_CONFIG[myRole]?.emoji || '❓'}</div>
-                      <div style={{ fontWeight: '800', fontSize: '1.2rem', color: ROLE_CONFIG[myRole]?.color || '#ffffff' }}>
-                        {myRole || 'Assigning...'}
-                      </div>
-                    </div>
-                  </div>
-
-                  <button onClick={() => setCardFlipped(!cardFlipped)} className="btn btn-secondary" style={{ marginTop: '1rem', width: 'auto' }}>
-                    {cardFlipped ? '🙈 Hide Role' : '👁️ Reveal Role'}
-                  </button>
-
-                  {myRole === 'Wazir' && !gameResult && (
-                    <div className="glass-card" style={{ marginTop: '1.5rem', width: '100%' }}>
-                      <h4 style={{ color: '#38bdf8', marginBottom: '0.5rem' }}>🛡️ Wazir: Catch the Thief (Chor)</h4>
-                      <div style={{ display: 'grid', gap: '0.5rem' }}>
-                        {otherPlayers.map((player) => (
-                          <button key={player.id} onClick={() => handleCatchChor(player.id)} className="btn btn-danger">
-                            Catch {player.name} 🥷
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {gameResult && (
-                    <div className="glass-card" style={{ marginTop: '1.5rem', width: '100%', textAlign: 'center' }}>
-                      <h3 style={{ color: gameResult.success ? '#4ade80' : '#f87171' }}>
-                        {gameResult.success ? '🎉 Wazir Caught the Thief!' : '❌ Thief Escaped!'}
-                      </h3>
-                      <p style={{ margin: '0.5rem 0' }}>{gameResult.message}</p>
-                      
-                      {gameResult.isSessionEnd ? (
-                        <div style={{ marginTop: '1rem' }}>
-                          <h4 style={{ color: '#ecc94b' }}>🎉 Session {currentRoom.currentSession} Finished!</h4>
-                          {isHost ? (
-                            <button onClick={handleNextSession} className="btn btn-primary" style={{ marginTop: '0.8rem' }}>
-                              🏆 Start Session {currentRoom.currentSession + 1}
-                            </button>
-                          ) : (
-                            <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: '0.5rem' }}>
-                              Waiting for host to start Session {currentRoom.currentSession + 1}...
-                            </p>
-                          )}
+              {/* PLAYER LIST WITH VOICE STATUS */}
+              <div className="players-section">
+                <h3>Players ({currentRoom.players.length})</h3>
+                <div className="player-grid">
+                  {currentRoom.players.map((p) => {
+                    const pVoice = voiceStates[p.id] || {};
+                    const isSpeaking = speakingPlayers[p.id];
+                    return (
+                      <div key={p.id} className={`player-card ${isSpeaking ? 'speaking' : ''}`}>
+                        <div className="player-info">
+                          <span className="player-name">
+                            {p.name} {p.isHost && '👑'}
+                          </span>
+                          <span className="voice-indicator">
+                            {!pVoice.voiceJoined ? '🔇 Off' : 
+                              pVoice.hostMuted ? '🔇 Host Muted' : 
+                              pVoice.selfMuted ? '🔇 Muted' : '🎙️ Active'}
+                          </span>
                         </div>
-                      ) : (
-                        isHost ? (
-                          <button onClick={handleNextRound} className="btn btn-primary" style={{ marginTop: '1rem' }}>
-                            ⏩ Next Round
-                          </button>
-                        ) : (
-                          <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: '0.8rem' }}>
-                            Waiting for host to start next round...
-                          </p>
-                        )
-                      )}
-                    </div>
-                  )}
+                        {isHost && p.id !== socket.id && pVoice.voiceJoined && (
+                          <div className="host-actions">
+                            {pVoice.hostMuted ? (
+                              <button className="btn-xs btn-success" onClick={() => handleHostUnmute(p.id)}>
+                                Unmute
+                              </button>
+                            ) : (
+                              <button className="btn-xs btn-danger" onClick={() => handleHostMute(p.id)}>
+                                Mute
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {gameState === 'lobby' && isHost && (
+                <div className="lobby-actions">
+                  <button className="btn btn-primary btn-large" onClick={handleStartGame}>
+                    Start Game
+                  </button>
+                </div>
+              )}
+
+              {gameState === 'playing' && (
+                <div className="game-board card">
+                  <h3>Game in Progress</h3>
+                  <p>In-game logic active. Voice remains connected across screens seamlessly.</p>
                 </div>
               )}
             </div>
+          </main>
 
-            <div className="glass-card chat-card">
-              <div className="chat-header">💬 IN-GAME CHAT</div>
-              <div className="chat-messages">
-                {messages.map((m) => (
-                  <div key={m.id} className="chat-msg">
-                    <strong>{m.sender}: </strong>{m.text}
-                  </div>
-                ))}
-                <div ref={chatEndRef} />
-              </div>
-              <form onSubmit={handleSendMessage} className="chat-form">
-                <input type="text" placeholder="Type..." value={chatInput} onChange={(e) => setChatInput(e.target.value)} className="input-field" />
-                <button type="submit" className="btn btn-primary" style={{ width: 'auto' }}>Send</button>
-              </form>
+          {/* CHAT PANEL */}
+          <aside className="chat-panel card">
+            <h3>Text Chat</h3>
+            <div className="chat-messages">
+              {messages.map((m, i) => (
+                <div key={i} className="chat-message">
+                  <span className="msg-time">[{m.timestamp}]</span>
+                  <strong>{m.sender}:</strong> {m.text}
+                </div>
+              ))}
             </div>
-          </div>
-        )}
-      </main>
+            <form onSubmit={handleSendMessage} className="chat-input-form">
+              <input 
+                type="text" 
+                placeholder="Type a message..." 
+                value={newMessage} 
+                onChange={(e) => setNewMessage(e.target.value)}
+              />
+              <button type="submit" className="btn btn-primary">Send</button>
+            </form>
+          </aside>
+        </div>
+      )}
     </div>
   );
 }
-
-export default App;

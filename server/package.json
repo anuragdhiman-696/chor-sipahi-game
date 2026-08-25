@@ -1,17 +1,18 @@
 {
-  "name": "server",
+  "name": "chor-sipahi-server",
   "version": "1.0.0",
-  "type": "module",
+  "description": "Backend Server for Chor Sipahi Realtime Voice Game",
+  "main": "index.js",
   "scripts": {
-    "dev": "nodemon index.js",
-    "start": "node index.js"
+    "start": "node index.js",
+    "dev": "nodemon index.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
-    "express": "^4.19.2",
-    "socket.io": "^4.7.5"
+    "express": "^4.18.2",
+    "socket.io": "^4.7.4"
   },
   "devDependencies": {
-    "nodemon": "^3.1.0"
+    "nodemon": "^3.0.3"
   }
 }

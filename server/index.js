@@ -1,240 +1,271 @@
-import express from 'express';
-import { createServer } from 'http';
-import { Server } from 'socket.io';
-import cors from 'cors';
+const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
+const cors = require('cors');
+const path = require('path');
 
 const app = express();
 app.use(cors());
 
-const httpServer = createServer(app);
-const io = new Server(httpServer, {
-  cors: { origin: "*", methods: ["GET", "POST"] }
+// Serve static frontend in production
+app.use(express.static(path.join(__dirname, '../client/dist')));
+
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: '*',
+    methods: ['GET', 'POST']
+  }
 });
 
+/**
+ * Room Data Structure:
+ * {
+ *   id: string,
+ *   host: string (socket.id),
+ *   players: Array<{ id: string, name: string, isHost: boolean, isSpectator: boolean, isReady: boolean }>,
+ *   gameState: 'lobby' | 'playing' | 'round_end' | 'game_end',
+ *   voiceStates: {
+ *     [socketId]: {
+ *       peerId: string,
+ *       voiceJoined: boolean,
+ *       selfMuted: boolean,
+ *       hostMuted: boolean
+ *     }
+ *   },
+ *   gameData: { ... }
+ * }
+ */
 const rooms = new Map();
-const ROLES = ['Raja', 'Wazir', 'Sipahi', 'Chor'];
-const MAX_ROUNDS_PER_SESSION = 20;
 
-const generateRoomId = () => Math.random().toString(36).substring(2, 8).toUpperCase();
-
-const shuffleArray = (array) => {
-  const arr = [...array];
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
+function generateRoomCode() {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let code = '';
+  for (let i = 0; i < 6; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
   }
-  return arr;
-};
+  return code;
+}
+
+function broadcastVoiceStateUpdate(roomId) {
+  const room = rooms.get(roomId);
+  if (!room) return;
+  io.to(roomId).emit('voice-state-updated', room.voiceStates);
+}
 
 io.on('connection', (socket) => {
-  // CREATE ROOM
-  socket.on('create-room', ({ name, peerId }, callback) => {
-    if (!name?.trim()) return callback({ error: 'Name is required' });
+  console.log(`User Connected: ${socket.id}`);
 
-    const roomId = generateRoomId();
-    const newPlayer = { id: socket.id, peerId, name: name.trim(), score: 0, role: null, isReady: true, isSpectator: false };
+  socket.on('create-room', ({ playerName }) => {
+    let roomId = generateRoomCode();
+    while (rooms.has(roomId)) {
+      roomId = generateRoomCode();
+    }
 
-    const newRoom = {
-      roomId,
+    const roomData = {
+      id: roomId,
       host: socket.id,
-      players: [newPlayer],
-      spectators: [],
-      gameStarted: false,
-      currentRound: 1,
-      currentSession: 1,
-      maxRounds: MAX_ROUNDS_PER_SESSION,
-      sessionWinners: [], // Stores { session: N, winnerName: "", score: X }
-      messages: []
+      players: [{
+        id: socket.id,
+        name: playerName || 'Player 1',
+        isHost: true,
+        isSpectator: false,
+        isReady: false
+      }],
+      gameState: 'lobby',
+      voiceStates: {},
+      chatMessages: []
     };
 
-    rooms.set(roomId, newRoom);
+    rooms.set(roomId, roomData);
     socket.join(roomId);
-    callback({ success: true, room: newRoom });
+    socket.emit('room-created', { roomId, room: roomData });
   });
 
-  // JOIN ROOM
-  socket.on('join-room', ({ roomId, name, peerId }, callback) => {
-    if (!name?.trim()) return callback({ error: 'Name is required' });
-    if (!roomId) return callback({ error: 'Room code required' });
-
-    const cleanRoomId = roomId.trim().toUpperCase();
+  socket.on('join-room', ({ roomId, playerName }) => {
+    const cleanRoomId = roomId ? roomId.trim().toUpperCase() : '';
     const room = rooms.get(cleanRoomId);
 
-    if (!room) return callback({ error: 'Room not found.' });
-
-    const isSpectator = room.players.length >= 4 || room.gameStarted;
-    const newParticipant = { id: socket.id, peerId, name: name.trim(), score: 0, role: null, isReady: false, isSpectator };
-
-    if (isSpectator) {
-      room.spectators.push(newParticipant);
-    } else {
-      room.players.push(newParticipant);
+    if (!room) {
+      return socket.emit('error-message', 'Room not found.');
     }
 
+    if (room.players.length >= 8 && room.gameState !== 'lobby') {
+      return socket.emit('error-message', 'Room is full or game in progress.');
+    }
+
+    const isSpectator = room.players.length >= 4 || room.gameState !== 'lobby';
+    const playerObj = {
+      id: socket.id,
+      name: playerName || `Player ${room.players.length + 1}`,
+      isHost: false,
+      isSpectator,
+      isReady: false
+    };
+
+    room.players.push(playerObj);
     socket.join(cleanRoomId);
-    io.to(cleanRoomId).emit('room-updated', { room });
-    callback({ success: true, room });
+
+    socket.emit('room-joined', { roomId: cleanRoomId, room });
+    io.to(cleanRoomId).emit('player-joined', { player: playerObj, room });
   });
 
-  // CARD DEALER HELPER
-  const dealCards = (room, cleanRoomId) => {
-    room.gameStarted = true;
-    const shuffledRoles = shuffleArray(ROLES);
-
-    room.players.forEach((p, idx) => { 
-      p.role = shuffledRoles[idx]; 
-    });
-
-    io.to(cleanRoomId).emit('game-started', { room });
-
-    room.players.forEach((p) => {
-      io.to(p.id).emit('assign-roles', { 
-        myRole: p.role,
-        players: room.players.map(i => ({ id: i.id, name: i.name, score: i.score }))
-      });
-    });
-
-    const raja = room.players.find(p => p.role === 'Raja');
-    const wazir = room.players.find(p => p.role === 'Wazir');
-    io.to(cleanRoomId).emit('reveal-raja', { rajaId: raja.id, rajaName: raja.name, wazirId: wazir.id });
-  };
-
-  // START FIRST GAME
-  socket.on('start-game', ({ roomId }) => {
-    const cleanRoomId = roomId?.trim().toUpperCase();
-    const room = rooms.get(cleanRoomId);
-    if (!room || room.players.length !== 4) return;
-    
-    room.currentRound = 1;
-    dealCards(room, cleanRoomId);
-  });
-
-  // NEXT ROUND
-  socket.on('next-round', ({ roomId }) => {
-    const cleanRoomId = roomId?.trim().toUpperCase();
-    const room = rooms.get(cleanRoomId);
-    if (!room || room.host !== socket.id) return;
-
-    if (room.currentRound < MAX_ROUNDS_PER_SESSION) {
-      room.currentRound += 1;
-      dealCards(room, cleanRoomId);
-    }
-  });
-
-  // START NEXT SESSION
-  socket.on('next-session', ({ roomId }) => {
-    const cleanRoomId = roomId?.trim().toUpperCase();
-    const room = rooms.get(cleanRoomId);
-    if (!room || room.host !== socket.id) return;
-
-    // Increment Session Counter and Reset Rounds & Scores
-    room.currentSession += 1;
-    room.currentRound = 1;
-    room.gameStarted = false;
-    room.players.forEach(p => p.score = 0);
-
-    io.to(cleanRoomId).emit('room-updated', { room });
-    dealCards(room, cleanRoomId);
-  });
-
-  // WAZIR GUESSING
-  socket.on('make-guess', ({ roomId, suspectId }) => {
-    const cleanRoomId = roomId?.trim().toUpperCase();
-    const room = rooms.get(cleanRoomId);
-    if (!room || !room.gameStarted) return;
-
-    const wazir = room.players.find(p => p.role === 'Wazir');
-    const chor = room.players.find(p => p.role === 'Chor');
-
-    if (socket.id !== wazir?.id) return;
-
-    const isCorrect = chor.id === suspectId;
-    const roundScores = {};
-
-    room.players.forEach(p => {
-      if (!p.score) p.score = 0;
-
-      let addedPts = 0;
-      if (p.role === 'Raja') addedPts = 1000;
-      else if (p.role === 'Sipahi') addedPts = 500;
-      else if (p.role === 'Wazir') addedPts = isCorrect ? 800 : 0;
-      else if (p.role === 'Chor') addedPts = isCorrect ? 0 : 800;
-
-      p.score += addedPts;
-      roundScores[p.name] = addedPts;
-    });
-
-    room.gameStarted = false;
-
-    // Check if session ended (Round 20 completed)
-    let isSessionEnd = room.currentRound >= MAX_ROUNDS_PER_SESSION;
-    if (isSessionEnd) {
-      // Find highest scoring player for this session
-      const sortedPlayers = [...room.players].sort((a, b) => b.score - a.score);
-      const sessionWinner = sortedPlayers[0];
-      room.sessionWinners.push({
-        session: room.currentSession,
-        winnerName: sessionWinner.name,
-        score: sessionWinner.score
-      });
-    }
-
-    io.to(cleanRoomId).emit('room-updated', { room });
-    io.to(cleanRoomId).emit('game-over', {
-      success: isCorrect,
-      scores: roundScores,
-      isSessionEnd,
-      message: isCorrect 
-        ? `🎉 ${wazir.name} (Wazir) correctly identified ${chor.name} as the Chor!` 
-        : `❌ ${wazir.name} (Wazir) guessed wrong! ${chor.name} was the Thief!`
-    });
-  });
-
-  // VOICE SIGNALING
+  // VOICE SIGNALING & STATE MANAGEMENT
   socket.on('join-voice', ({ roomId, peerId }) => {
-    const cleanRoomId = roomId?.trim().toUpperCase();
-    socket.to(cleanRoomId).emit('user-connected-voice', { peerId, socketId: socket.id });
-  });
-
-  // CHAT
-  socket.on('send-message', ({ roomId, messageText }) => {
-    const cleanRoomId = roomId?.trim().toUpperCase();
-    const room = rooms.get(cleanRoomId);
+    const room = rooms.get(roomId);
     if (!room) return;
 
-    const sender = [...room.players, ...room.spectators].find(p => p.id === socket.id);
-    const msg = {
-      id: Date.now(),
-      sender: sender ? sender.name : 'Player',
-      senderId: socket.id,
-      text: messageText,
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    };
-    room.messages.push(msg);
-    io.to(cleanRoomId).emit('new-message', msg);
+    if (!room.voiceStates[socket.id]) {
+      room.voiceStates[socket.id] = {
+        peerId,
+        voiceJoined: true,
+        selfMuted: false,
+        hostMuted: false
+      };
+    } else {
+      room.voiceStates[socket.id].peerId = peerId;
+      room.voiceStates[socket.id].voiceJoined = true;
+    }
+
+    // Inform joining player of existing voice participants
+    const activeVoiceParticipants = Object.entries(room.voiceStates)
+      .filter(([id, state]) => state.voiceJoined && id !== socket.id)
+      .map(([id, state]) => ({ socketId: id, peerId: state.peerId }));
+
+    socket.emit('voice-participants', activeVoiceParticipants);
+
+    // Broadcast new participant to others
+    socket.to(roomId).emit('user-connected-voice', {
+      socketId: socket.id,
+      peerId
+    });
+
+    broadcastVoiceStateUpdate(roomId);
   });
 
-  // DISCONNECT
-  socket.on('disconnect', () => {
-    for (const [roomId, room] of rooms.entries()) {
-      let index = room.players.findIndex(p => p.id === socket.id);
-      if (index !== -1) room.players.splice(index, 1);
+  socket.on('voice-mute-self', ({ roomId, selfMuted }) => {
+    const room = rooms.get(roomId);
+    if (!room || !room.voiceStates[socket.id]) return;
 
-      index = room.spectators.findIndex(p => p.id === socket.id);
-      if (index !== -1) room.spectators.splice(index, 1);
+    room.voiceStates[socket.id].selfMuted = Boolean(selfMuted);
+    broadcastVoiceStateUpdate(roomId);
+  });
 
-      if (room.players.length === 0 && room.spectators.length === 0) {
-        rooms.delete(roomId);
-      } else {
-        if (room.host === socket.id && room.players.length > 0) {
-          room.host = room.players[0].id;
-        }
-        io.to(roomId).emit('room-updated', { room });
-      }
-      break;
+  // SECURE HOST VOICE CONTROLS
+  socket.on('host-mute-player', ({ roomId, targetSocketId }) => {
+    const room = rooms.get(roomId);
+    if (!room) return;
+    if (socket.id !== room.host) {
+      return socket.emit('error-message', 'Unauthorized: Only the room host can mute players.');
+    }
+
+    if (room.voiceStates[targetSocketId]) {
+      room.voiceStates[targetSocketId].hostMuted = true;
+      io.to(targetSocketId).emit('force-host-mute', { hostMuted: true });
+      broadcastVoiceStateUpdate(roomId);
     }
   });
+
+  socket.on('host-unmute-player', ({ roomId, targetSocketId }) => {
+    const room = rooms.get(roomId);
+    if (!room) return;
+    if (socket.id !== room.host) {
+      return socket.emit('error-message', 'Unauthorized: Only the room host can unmute players.');
+    }
+
+    if (room.voiceStates[targetSocketId]) {
+      room.voiceStates[targetSocketId].hostMuted = false;
+      io.to(targetSocketId).emit('force-host-mute', { hostMuted: false });
+      broadcastVoiceStateUpdate(roomId);
+    }
+  });
+
+  socket.on('host-mute-all', ({ roomId }) => {
+    const room = rooms.get(roomId);
+    if (!room) return;
+    if (socket.id !== room.host) {
+      return socket.emit('error-message', 'Unauthorized: Only the room host can mute all.');
+    }
+
+    Object.keys(room.voiceStates).forEach((sId) => {
+      if (sId !== room.host) {
+        room.voiceStates[sId].hostMuted = true;
+        io.to(sId).emit('force-host-mute', { hostMuted: true });
+      }
+    });
+
+    broadcastVoiceStateUpdate(roomId);
+  });
+
+  socket.on('host-unmute-all', ({ roomId }) => {
+    const room = rooms.get(roomId);
+    if (!room) return;
+    if (socket.id !== room.host) {
+      return socket.emit('error-message', 'Unauthorized: Only the room host can unmute all.');
+    }
+
+    Object.keys(room.voiceStates).forEach((sId) => {
+      if (sId !== room.host) {
+        room.voiceStates[sId].hostMuted = false;
+        io.to(sId).emit('force-host-mute', { hostMuted: false });
+      }
+    });
+
+    broadcastVoiceStateUpdate(roomId);
+  });
+
+  socket.on('send-message', ({ roomId, message }) => {
+    const room = rooms.get(roomId);
+    if (!room) return;
+
+    const sender = room.players.find(p => p.id === socket.id);
+    const msgData = {
+      sender: sender ? sender.name : 'Unknown',
+      text: message,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+
+    room.chatMessages.push(msgData);
+    io.to(roomId).emit('receive-message', msgData);
+  });
+
+  socket.on('start-game', ({ roomId }) => {
+    const room = rooms.get(roomId);
+    if (!room || socket.id !== room.host) return;
+
+    room.gameState = 'playing';
+    io.to(roomId).emit('game-started', { room });
+  });
+
+  socket.on('disconnect', () => {
+    console.log(`User Disconnected: ${socket.id}`);
+    rooms.forEach((room, roomId) => {
+      const playerIndex = room.players.findIndex(p => p.id === socket.id);
+      if (playerIndex !== -1) {
+        room.players.splice(playerIndex, 1);
+        delete room.voiceStates[socket.id];
+
+        socket.to(roomId).emit('user-disconnected-voice', { socketId: socket.id });
+        socket.to(roomId).emit('player-left', { socketId: socket.id, room });
+
+        if (room.players.length === 0) {
+          rooms.delete(roomId);
+        } else if (room.host === socket.id) {
+          room.host = room.players[0].id;
+          room.players[0].isHost = true;
+          io.to(roomId).emit('host-changed', { newHostId: room.host, room });
+        }
+        broadcastVoiceStateUpdate(roomId);
+      }
+    });
+  });
+});
+
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '../client/dist/index.html'));
 });
 
 const PORT = process.env.PORT || 5000;
-httpServer.listen(PORT, '0.0.0.0', () => console.log(`🚀 Server running on port ${PORT}`));
+server.listen(PORT, () => {
+  console.log(`Chor Sipahi Server running on port ${PORT}`);
+});
