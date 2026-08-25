@@ -46,6 +46,11 @@ jobs:
       - name: Setup Android SDK Tools
         uses: android-actions/setup-android@v3
 
+      - name: Install Missing Android Build Tools (33.0.2)
+        run: |
+          yes | sdkmanager "platforms;android-33" "build-tools;33.0.2" "platform-tools"
+          yes | sdkmanager --licenses || true
+
       - name: Install Gradle 7.6 (Overrides System Gradle 9.x)
         run: |
           wget -q https://services.gradle.org/distributions/gradle-7.6-bin.zip
