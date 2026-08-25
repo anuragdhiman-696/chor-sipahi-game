@@ -25,7 +25,7 @@ jobs:
 
       - name: Install Client Dependencies
         working-directory: client
-        run: npm ci
+        run: npm install
 
       - name: Build Frontend
         working-directory: client
@@ -37,26 +37,26 @@ jobs:
           mkdir -p www
           cp -r client/dist/. www/
 
-      - name: Setup Java JDK
+      - name: Setup Java JDK 11 (Fixes Groovy XmlParser Error)
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '11'
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
       - name: Install Android Build Tools & Accept Licenses
         run: |
-          sdkmanager "platform-tools" "platforms;android-33" "build-tools;33.0.2"
+          sdkmanager "platform-tools" "platforms;android-30" "build-tools;30.0.3"
           yes | sdkmanager --licenses || true
 
       - name: Install Cordova CLI
-        run: npm install -g cordova
+        run: npm install -g cordova@11.1.0
 
-      - name: Add Cordova Android Platform
+      - name: Add Compatible Cordova Android Platform
         run: |
-          cordova platform add android@12.0.0 --no-telemetry || true
+          cordova platform add android@10.1.2 --no-telemetry
 
       - name: Grant Executable Permissions to Gradle
         run: |
