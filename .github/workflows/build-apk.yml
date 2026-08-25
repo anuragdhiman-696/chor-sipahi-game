@@ -1,58 +1,8 @@
-name: Build Android APK
-
-on:
-  push:
-    branches: [ "main", "master" ]
-  workflow_dispatch:
-
-# Grants permission to create Releases
-permissions:
-  contents: write
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
+- name: Upload APK Artifact (Actions Download Button)
+        uses: actions/upload-artifact@v4
         with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Build React Client
-        run: |
-          cd client
-          npm install
-          npm run build
-
-      - name: Setup Cordova & Build APK
-        run: |
-          npm install -g cordova
-          cordova create app com.anurag.chorsipahi "Chor Sipahi"
-          cd app
-          rm -rf www/*
-          cp -r ../client/dist/* www/
-
-          # Copy app icon if present
-          if [ -f "../client/public/icon.png" ]; then
-            cp ../client/public/icon.png icon.png
-            sed -i '/<\/widget>/i \    <icon src="icon.png" \/>' config.xml
-          fi
-
-          cordova platform add android
-          cordova build android --debug
-
-          # Rename output APK to Chor-Sipahi.apk
-          mv platforms/android/app/build/outputs/apk/debug/app-debug.apk platforms/android/app/build/outputs/apk/debug/Chor-Sipahi.apk
+          name: Chor-Sipahi-APK
+          path: app/platforms/android/app/build/outputs/apk/debug/Chor-Sipahi.apk
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
