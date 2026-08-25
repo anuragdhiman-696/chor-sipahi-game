@@ -52,39 +52,61 @@ jobs:
           fi
 
           echo "Configuring microphone permissions..."
-          node -e '
-            const fs = require("fs");
-            let xml = fs.readFileSync("config.xml", "utf8");
 
-            // Add android namespace to widget tag
-            xml = xml.replace("<widget", "<widget xmlns:android=\"http://schemas.android.com/apk/res/android\"");
+          node <<'EOF'
+          const fs = require("fs");
 
-            const configInsertions = `
-    <preference name="MediaPlaybackRequiresUserAction" value="false" />
-    <preference name="AllowInlineMediaPlayback" value="true" />
-    <platform name="android">
-        <config-file target="AndroidManifest.xml" parent="/manifest">
-            <uses-permission android:name="android.permission.RECORD_AUDIO" />
-            <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
-            <uses-permission android:name="android.permission.AUDIO_CAPTURE" />
-        </config-file>
-    </platform>
-            `;
+          let xml = fs.readFileSync("config.xml", "utf8");
 
-            xml = xml.replace("</widget>", configInsertions + "\n</widget>");
+          // Add Android namespace to the root widget
+          if (!xml.includes("xmlns:android=")) {
+            xml = xml.replace(
+              "<widget",
+              '<widget xmlns:android="http://schemas.android.com/apk/res/android"'
+            );
+          }
 
-            if (fs.existsSync("icon.png")) {
-              xml = xml.replace("</widget>", "    <icon src=\"icon.png\" />\n</widget>");
-            }
+          // Add Android microphone permissions
+          const androidConfig = `
+              <platform name="android">
+                  <config-file target="AndroidManifest.xml" parent="/manifest">
+                      <uses-permission android:name="android.permission.RECORD_AUDIO" />
+                      <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+                  </config-file>
+              </platform>
+          `;
 
-            fs.writeFileSync("config.xml", xml);
-          '
+          xml = xml.replace("</widget>", androidConfig + "\n</widget>");
 
-          echo "Installing Cordova Android..."
-          cordova platform add android
+          // WebView settings
+          const preferences = `
+              <preference name="MediaPlaybackRequiresUserAction" value="false" />
+              <preference name="AllowInlineMediaPlayback" value="true" />
+          `;
+
+          xml = xml.replace("</widget>", preferences + "\n</widget>");
+
+          // Add icon
+          if (fs.existsSync("icon.png")) {
+            xml = xml.replace(
+              "</widget>",
+              '    <icon src="icon.png" />\n</widget>'
+            );
+          }
+
+          fs.writeFileSync("config.xml", xml);
+
+          console.log("config.xml configured successfully");
+          EOF
+
+          echo "Installing Cordova Android 15.1.0..."
+          cordova platform add android@15.1.0
 
           echo "Installing media capture plugin..."
           cordova plugin add cordova-plugin-media-capture
+
+          echo "Installed Cordova platforms:"
+          cordova platform ls
 
           echo "Building APK..."
           cordova build android --debug
@@ -112,5 +134,6 @@ jobs:
 
             Build #${{ github.run_number }}
 
+            Cordova Android 15.1.0
             Microphone permissions enabled
           files: app/platforms/android/app/build/outputs/apk/debug/Chor-Sipahi.apk
