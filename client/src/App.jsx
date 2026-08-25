@@ -54,22 +54,39 @@ function App() {
     audio.play().catch(console.error);
   };
 
-  useEffect(() => {
-    const peer = new Peer();
-    peer.on('open', (id) => setPeerId(id));
-    
-    peer.on('call', (call) => {
-      if (localStream.current) {
-        call.answer(localStream.current);
-        call.on('stream', (stream) => handleRemoteStream(stream, call.peer));
+useEffect(() => {
+    // Configured with free TURN/STUN servers for cross-network voice chat
+    const peer = new Peer({
+      config: {
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:global.stun.twilio.com:3478' },
+          {
+            urls: 'turn:openrelay.metered.ca:80',
+            username: 'openrelayproject',
+            credential: 'openrelayproject'
+          },
+          {
+            urls: 'turn:openrelay.metered.ca:443',
+            username: 'openrelayproject',
+            credential: 'openrelayproject'
+          }
+        ]
       }
+    });
+
+    peer.on('open', (id) => setPeerId(id));
+
+    peer.on('call', (call) => {
+      call.answer(localStream.current);
+      call.on('stream', (stream) => handleRemoteStream(stream, call.peer));
     });
 
     peerInstance.current = peer;
 
     socket.on('connect', () => setIsConnected(true));
     socket.on('disconnect', () => setIsConnected(false));
-    
+
     socket.on('room-updated', ({ room }) => {
       setCurrentRoom(room);
       if (room.messages) setMessages(room.messages);
@@ -97,7 +114,10 @@ function App() {
     socket.on('game-over', (result) => setGameResult(result));
     socket.on('new-message', (msg) => setMessages((prev) => [...prev, msg]));
 
-    return () => socket.off();
+    return () => {
+      peer.destroy();
+      socket.off();
+    };
   }, [peerId]);
 
   useEffect(() => {
