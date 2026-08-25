@@ -13,8 +13,8 @@ app.use(express.static(path.join(__dirname, '../client/dist')));
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: '*',
-    methods: ['GET', 'POST']
+    origin: "*", // Allows browser, web apps, and APK native webviews
+    methods: ["GET", "POST"]
   }
 });
 
