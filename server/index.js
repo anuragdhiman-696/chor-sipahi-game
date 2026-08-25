@@ -1,4 +1,3 @@
-// server/index.js
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
@@ -27,19 +26,18 @@ const shuffleArray = (array) => {
 };
 
 io.on('connection', (socket) => {
-  console.log(`⚡ Client connected: ${socket.id}`);
-
-  // 1. CREATE ROOM
-  socket.on('create-room', ({ name }, callback) => {
-    if (!name?.trim()) return callback({ error: 'Please enter a valid name' });
+  // CREATE ROOM
+  socket.on('create-room', ({ name, peerId }, callback) => {
+    if (!name?.trim()) return callback({ error: 'Name is required' });
 
     const roomId = generateRoomId();
-    const newPlayer = { id: socket.id, name: name.trim(), score: 0, role: null, isReady: true };
+    const newPlayer = { id: socket.id, peerId, name: name.trim(), score: 0, role: null, isReady: true, isSpectator: false };
 
     const newRoom = {
       roomId,
       host: socket.id,
       players: [newPlayer],
+      spectators: [],
       gameStarted: false,
       currentRound: 1,
       messages: []
@@ -50,40 +48,32 @@ io.on('connection', (socket) => {
     callback({ success: true, room: newRoom });
   });
 
-  // 2. JOIN ROOM
-  socket.on('join-room', ({ roomId, name }, callback) => {
+  // JOIN ROOM (Auto-assigns to Spectators if room >= 4 or game in progress)
+  socket.on('join-room', ({ roomId, name, peerId }, callback) => {
     const cleanRoomId = roomId?.trim().toUpperCase();
     const room = rooms.get(cleanRoomId);
 
-    if (!name?.trim()) return callback({ error: 'Please enter a valid name' });
-    if (!room) return callback({ error: 'Room code not found. Please check and try again.' });
-    if (room.players.length >= 4) return callback({ error: 'Room is full! Maximum 4 players allowed.' });
-    if (room.gameStarted) return callback({ error: 'Game has already started in this room.' });
+    if (!name?.trim()) return callback({ error: 'Name is required' });
+    if (!room) return callback({ error: 'Room not found' });
 
-    const newPlayer = { id: socket.id, name: name.trim(), score: 0, role: null, isReady: false };
-    room.players.push(newPlayer);
+    const isSpectator = room.players.length >= 4 || room.gameStarted;
+    const newParticipant = { id: socket.id, peerId, name: name.trim(), score: 0, role: null, isReady: false, isSpectator };
+
+    if (isSpectator) {
+      room.spectators.push(newParticipant);
+    } else {
+      room.players.push(newParticipant);
+    }
+
     socket.join(cleanRoomId);
-
-    // Announce system join message in chat
-    const sysMsg = {
-      id: Date.now(),
-      sender: 'System',
-      text: `${name.trim()} joined the room.`,
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      isSystem: true
-    };
-    room.messages.push(sysMsg);
-
-    io.to(cleanRoomId).emit('player-joined', { room });
-    io.to(cleanRoomId).emit('new-message', sysMsg);
+    io.to(cleanRoomId).emit('room-updated', { room });
     callback({ success: true, room });
   });
 
-  // 3. TOGGLE READY
+  // TOGGLE READY
   socket.on('toggle-ready', ({ roomId }) => {
     const room = rooms.get(roomId);
     if (!room) return;
-
     const player = room.players.find(p => p.id === socket.id);
     if (player) {
       player.isReady = !player.isReady;
@@ -91,145 +81,72 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 4. START GAME
+  // START GAME
   socket.on('start-game', ({ roomId }) => {
     const room = rooms.get(roomId);
-    if (!room) return;
-
-    if (room.players.length !== 4 || !room.players.every(p => p.isReady)) return;
+    if (!room || room.players.length !== 4) return;
 
     room.gameStarted = true;
     const shuffledRoles = shuffleArray(ROLES);
 
-    room.players.forEach((p, index) => {
-      p.role = shuffledRoles[index];
-    });
+    room.players.forEach((p, idx) => { p.role = shuffledRoles[idx]; });
 
     io.to(roomId).emit('game-started', { room });
 
-    // Send private role chits to each socket
     room.players.forEach((p) => {
       io.to(p.id).emit('assign-roles', { 
         myRole: p.role,
-        players: room.players.map(item => ({ id: item.id, name: item.name, score: item.score }))
+        players: room.players.map(i => ({ id: i.id, name: i.name, score: i.score }))
       });
     });
 
     const raja = room.players.find(p => p.role === 'Raja');
     const wazir = room.players.find(p => p.role === 'Wazir');
-
-    io.to(roomId).emit('reveal-raja', { 
-      rajaId: raja.id, 
-      rajaName: raja.name,
-      wazirId: wazir.id 
-    });
+    io.to(roomId).emit('reveal-raja', { rajaId: raja.id, rajaName: raja.name, wazirId: wazir.id });
   });
 
-  // 5. WAZIR GUESSES CHOR
-  socket.on('guess-chor', ({ roomId, guessedPlayerId }) => {
-    const room = rooms.get(roomId);
-    if (!room) return;
-
-    const wazir = room.players.find(p => p.role === 'Wazir');
-    const chor = room.players.find(p => p.role === 'Chor');
-    const raja = room.players.find(p => p.role === 'Raja');
-    const sipahi = room.players.find(p => p.role === 'Sipahi');
-
-    if (socket.id !== wazir.id) return;
-
-    const isCorrect = guessedPlayerId === chor.id;
-
-    // Standard scoring
-    raja.score += 1000;
-    sipahi.score += 500;
-
-    if (isCorrect) {
-      wazir.score += 800;
-      chor.score += 0;
-    } else {
-      chor.score += 800;
-      wazir.score += 0;
-    }
-
-    io.to(roomId).emit('round-result', {
-      isCorrect,
-      guessedPlayerId,
-      chor,
-      wazir,
-      raja,
-      sipahi,
-      allPlayers: room.players,
-      room
-    });
+  // VOICE SIGNALING
+  socket.on('join-voice', ({ roomId, peerId }) => {
+    socket.to(roomId).emit('user-connected-voice', { peerId, socketId: socket.id });
   });
 
-  // 6. NEXT ROUND RESET
-  socket.on('next-round', ({ roomId }) => {
-    const room = rooms.get(roomId);
-    if (!room || room.host !== socket.id) return;
-
-    room.currentRound += 1;
-    io.to(roomId).emit('trigger-next-round', { roomId });
-  });
-
-  // 7. REAL-TIME CHAT (Phase 7)
+  // CHAT
   socket.on('send-message', ({ roomId, messageText }) => {
     const room = rooms.get(roomId);
-    if (!room || !messageText?.trim()) return;
-
-    const senderPlayer = room.players.find(p => p.id === socket.id);
-    if (!senderPlayer) return;
-
-    const chatMsg = {
+    if (!room) return;
+    const sender = [...room.players, ...room.spectators].find(p => p.id === socket.id);
+    const msg = {
       id: Date.now(),
+      sender: sender ? sender.name : 'Unknown',
       senderId: socket.id,
-      sender: senderPlayer.name,
-      text: messageText.trim(),
+      text: messageText,
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
-
-    room.messages.push(chatMsg);
-    io.to(roomId).emit('new-message', chatMsg);
+    room.messages.push(msg);
+    io.to(roomId).emit('new-message', msg);
   });
 
-  // 8. DISCONNECT HANDLING (Phase 8)
+  // DISCONNECT
   socket.on('disconnect', () => {
     for (const [roomId, room] of rooms.entries()) {
-      const index = room.players.findIndex(p => p.id === socket.id);
-      if (index !== -1) {
-        const leftPlayer = room.players[index];
-        room.players.splice(index, 1);
+      let index = room.players.findIndex(p => p.id === socket.id);
+      if (index !== -1) room.players.splice(index, 1);
 
-        if (room.players.length === 0) {
-          rooms.delete(roomId);
-        } else {
-          // Transfer host if original host leaves
-          if (room.host === socket.id) {
-            room.host = room.players[0].id;
-            const newHost = room.players.find(p => p.id === room.host);
-            if (newHost) newHost.isReady = true;
-          }
+      index = room.spectators.findIndex(p => p.id === socket.id);
+      if (index !== -1) room.spectators.splice(index, 1);
 
-          // System message in chat for disconnect
-          const discMsg = {
-            id: Date.now(),
-            sender: 'System',
-            text: `${leftPlayer.name} disconnected.`,
-            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            isSystem: true
-          };
-          room.messages.push(discMsg);
-
-          io.to(roomId).emit('player-left', { room });
-          io.to(roomId).emit('new-message', discMsg);
+      if (room.players.length === 0 && room.spectators.length === 0) {
+        rooms.delete(roomId);
+      } else {
+        if (room.host === socket.id && room.players.length > 0) {
+          room.host = room.players[0].id;
         }
-        break;
+        io.to(roomId).emit('room-updated', { room });
       }
+      break;
     }
   });
 });
 
 const PORT = process.env.PORT || 5000;
-httpServer.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
+httpServer.listen(PORT, '0.0.0.0', () => console.log(`🚀 Server running on port ${PORT}`));
