@@ -44,6 +44,10 @@ jobs:
           # Add Android Platform & Native Plugins
           cordova platform add android
           cordova plugin add cordova-plugin-media-capture
+          cordova plugin add cordova-plugin-android-permissions
+
+          # Inject WebView Hardware & Microphone Access Flags into config.xml
+          sed -i 's|</widget>|  <preference name="MediaPlaybackRequiresUserAction" value="false" />\n  <preference name="AllowInlineMediaPlayback" value="true" />\n  <preference name="android-targetSdkVersion" value="33" />\n  <config-file target="AndroidManifest.xml" parent="/*">\n    <uses-permission name="android.permission.RECORD_AUDIO" />\n    <uses-permission name="android.permission.MODIFY_AUDIO_SETTINGS" />\n    <uses-permission name="android.permission.AUDIO_CAPTURE" />\n  </config-file>\n</widget>|' config.xml
 
           # Copy Icon safely if present
           if [ -f "../client/public/icon.png" ]; then
@@ -71,6 +75,6 @@ jobs:
           body: |
             🎮 **Chor Sipahi Game - Android Release**
             
-            - Native Microphone Permissions Enabled
+            - Added native WebView audio capture permissions
             - Ready for direct installation on Android
           files: app/platforms/android/app/build/outputs/apk/debug/Chor-Sipahi.apk
