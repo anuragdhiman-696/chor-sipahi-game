@@ -1,12 +1,14 @@
-name: Build Android APK
+name: Build and Release Android APK
 
 on:
   push:
     branches: [main, master]
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -69,11 +71,6 @@ jobs:
         run: |
           cordova build android --debug --no-telemetry
 
-      - name: Verify APK Generation
-        run: |
-          echo "Searching for generated APK files..."
-          find platforms/android -type f -name "*.apk"
-
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -81,3 +78,15 @@ jobs:
           path: platforms/android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: release-${{ github.run_number }}
+          name: Release v1.0.${{ github.run_number }}
+          body: "Automated build release for Chor-Sipahi Android App."
+          draft: false
+          prerelease: false
+          files: platforms/android/app/build/outputs/apk/debug/*.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
