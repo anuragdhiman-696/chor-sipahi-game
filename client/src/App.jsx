@@ -25,7 +25,8 @@ function App() {
 
   // Voice Chat States
   const [peerId, setPeerId] = useState('');
-  const [isMuted, setIsMuted] = useState(false);
+  const [isMuted, setIsMuted] = useState(true);
+  const [hasMicPermission, setHasMicPermission] = useState(false);
   const peerInstance = useRef(null);
   const localStream = useRef(null);
 
@@ -41,22 +42,9 @@ function App() {
   const chatEndRef = useRef(null);
 
   useEffect(() => {
-    // 1. Initialize PeerJS for Voice Chat
+    // 1. Initialize PeerJS instance without immediate mic capture
     const peer = new Peer();
     peer.on('open', (id) => setPeerId(id));
-
-    navigator.mediaDevices?.getUserMedia({ audio: true }).then((stream) => {
-      localStream.current = stream;
-      peer.on('call', (call) => {
-        call.answer(stream);
-        call.on('stream', (remoteStream) => {
-          const audio = new Audio();
-          audio.srcObject = remoteStream;
-          audio.play();
-        });
-      });
-    }).catch(() => console.log('Mic access denied'));
-
     peerInstance.current = peer;
 
     // 2. Socket listeners
@@ -68,7 +56,7 @@ function App() {
       setCurrentRoom(room);
       setGameStarted(true);
       setIsDealt(false);
-      setTimeout(() => setIsDealt(true), 100); // Trigger card deal animation
+      setTimeout(() => setIsDealt(true), 100);
     });
 
     socket.on('assign-roles', ({ myRole }) => {
@@ -92,10 +80,48 @@ function App() {
     return () => socket.off();
   }, []);
 
+  // Native Cordova / Web view permission request handler
+  const enableMicrophone = async () => {
+    const requestAudioStream = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        localStream.current = stream;
+        setHasMicPermission(true);
+        setIsMuted(false);
+
+        // Answer incoming peer calls once mic stream is ready
+        if (peerInstance.current) {
+          peerInstance.current.on('call', (call) => {
+            call.answer(stream);
+            call.on('stream', (remoteStream) => {
+              const audio = new Audio();
+              audio.srcObject = remoteStream;
+              audio.play();
+            });
+          });
+        }
+      } catch (err) {
+        alert("Microphone permission denied or not supported on this device.");
+        console.error("Mic Error:", err);
+      }
+    };
+
+    if (window.cordova) {
+      document.addEventListener('deviceready', requestAudioStream, false);
+    } else {
+      await requestAudioStream();
+    }
+  };
+
   const toggleMic = () => {
+    if (!hasMicPermission) {
+      enableMicrophone();
+      return;
+    }
     if (localStream.current) {
-      localStream.current.getAudioTracks()[0].enabled = isMuted;
-      setIsMuted(!isMuted);
+      const nextMuteState = !isMuted;
+      localStream.current.getAudioTracks()[0].enabled = !nextMuteState;
+      setIsMuted(nextMuteState);
     }
   };
 
@@ -138,8 +164,12 @@ function App() {
         
         <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
           {currentRoom && (
-            <button onClick={toggleMic} className={`btn ${isMuted ? 'btn-danger' : 'btn-success'}`} style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem' }}>
-              {isMuted ? '🔇 Muted' : '🎙️ Voice Active'}
+            <button 
+              onClick={toggleMic} 
+              className={`btn ${!hasMicPermission ? 'btn-primary' : isMuted ? 'btn-danger' : 'btn-success'}`} 
+              style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem' }}
+            >
+              {!hasMicPermission ? '🎙️ Enable Mic' : isMuted ? '🔇 Muted' : '🎙️ Voice Active'}
             </button>
           )}
           <span style={{ color: isConnected ? '#4ade80' : '#f87171', fontSize: '0.85rem', fontWeight: '700' }}>
@@ -153,6 +183,7 @@ function App() {
         {!currentRoom && (
           <div className="glass-card" style={{ maxWidth: '450px', margin: '2rem auto' }}>
             <h2>Enter Arena</h2>
+            {error && <div style={{ color: '#f87171', marginBottom: '0.5rem' }}>{error}</div>}
             <input type="text" placeholder="Your Name" value={name} onChange={(e) => setName(e.target.value)} className="input-field" style={{ marginBottom: '1rem' }} />
             <button onClick={handleCreateRoom} className="btn btn-primary" style={{ marginBottom: '1rem' }}>✨ Create Room</button>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
