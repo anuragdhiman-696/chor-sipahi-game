@@ -35,7 +35,6 @@ jobs:
 
       - name: Prepare Cordova Web Assets
         run: |
-          rm -rf www
           mkdir -p www
           cp -r client/dist/. www/
 

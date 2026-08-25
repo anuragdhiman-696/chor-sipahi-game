@@ -1,18 +1,14 @@
-<?xml version='1.0' encoding='utf-8'?>
-<widget id="com.anurag.chorsipahi" version="1.0.0" xmlns="http://www.w3.org/ns/widgets">
+<widget id="com.example.chorsipahi" version="1.0.0" xmlns="http://www.w3.org/ns/widgets" xmlns:cdv="http://cordova.apache.org/ns/1.0">
     <name>Chor Sipahi</name>
     <description>Chor Sipahi Game</description>
-    <author email="dev@example.com">Anurag Dhiman</author>
+    <author email="dev@example.com" href="http://cordova.io">Developer</author>
     <content src="index.html" />
-    
-    <!-- Allow access to external servers -->
-    <access origin="*" />
-    <allow-navigation href="*" />
-    <allow-intent href="http://*/*" />
-    <allow-intent href="https://*/*" />
-    <allow-intent href="ws://*/*" />
-    <allow-intent href="wss://*/*" />
-    
-    <preference name="Scheme" value="https" />
-    <preference name="Hostname" value="localhost" />
+
+    <!-- Global App Icon -->
+    <icon src="res/icon.png" />
+
+    <platform name="android">
+        <!-- Android Specific App Icon -->
+        <icon src="res/icon.png" />
+    </platform>
 </widget>
