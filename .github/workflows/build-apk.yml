@@ -5,7 +5,6 @@ on:
     branches: [ "main", "master" ]
   workflow_dispatch:
 
-# Grants permission to create Releases
 permissions:
   contents: write
 
@@ -42,36 +41,23 @@ jobs:
           rm -rf www/*
           cp -r ../client/dist/* www/
 
-          # Inject icon and Microphone permissions into config.xml safely using Node.js
-          node -e '
-            const fs = require("fs");
-            let config = fs.readFileSync("config.xml", "utf8");
-            
-            // Add custom android permissions namespace and tags
-            const micPermissions = `
-  <widget xmlns:android="http://schemas.android.com/apk/res/android">
-  <config-file target="AndroidManifest.xml" parent="/*">
-    <uses-permission name="android.permission.RECORD_AUDIO" />
-    <uses-permission name="android.permission.MODIFY_AUDIO_SETTINGS" />
-  </config-file>`;
-
-            let updated = config.replace("<widget>", micPermissions);
-
-            if (fs.existsSync("../client/public/icon.png")) {
-              fs.copyFileSync("../client/public/icon.png", "icon.png");
-              updated = updated.replace("</widget>", "    <icon src=\"icon.png\" />\n</widget>");
-            }
-
-            fs.writeFileSync("config.xml", updated);
-          '
-
+          # Add Android Platform & Native Plugins
           cordova platform add android
+          cordova plugin add cordova-plugin-media-capture
+
+          # Copy Icon safely if present
+          if [ -f "../client/public/icon.png" ]; then
+            cp ../client/public/icon.png icon.png
+            sed -i 's|</widget>|  <icon src="icon.png" />\n</widget>|' config.xml
+          fi
+
+          # Build Debug APK
           cordova build android --debug
 
-          # Rename output APK to Chor-Sipahi.apk
+          # Rename output APK
           mv platforms/android/app/build/outputs/apk/debug/app-debug.apk platforms/android/app/build/outputs/apk/debug/Chor-Sipahi.apk
 
-      - name: Upload APK Artifact (Actions Download Button)
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: Chor-Sipahi-APK
@@ -85,7 +71,6 @@ jobs:
           body: |
             🎮 **Chor Sipahi Game - Android Release**
             
-            - Includes Microphone / Audio permissions
-            - Pre-configured live multiplayer backend
+            - Native Microphone Permissions Enabled
             - Ready for direct installation on Android
           files: app/platforms/android/app/build/outputs/apk/debug/Chor-Sipahi.apk
