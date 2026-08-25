@@ -30,33 +30,43 @@ function App() {
   const peerInstance = useRef(null);
   const localStream = useRef(null);
 
-  // Game & Card Animation States
+  // Game & Card States
   const [gameStarted, setGameStarted] = useState(false);
   const [myRole, setMyRole] = useState(null);
   const [cardFlipped, setCardFlipped] = useState(false);
+  const [gameResult, setGameResult] = useState(null);
 
   // Chat
   const [messages, setMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
   const chatEndRef = useRef(null);
 
-  // Helper to handle and auto-play incoming WebRTC streams cleanly
-  const handleRemoteStream = (remoteStream) => {
-    let audio = document.getElementById(`audio-${remoteStream.id}`);
+  // Safely play WebRTC audio streams dynamically
+  const handleRemoteStream = (stream, id) => {
+    let audio = document.getElementById(`audio-${id}`);
     if (!audio) {
       audio = document.createElement('audio');
-      audio.id = `audio-${remoteStream.id}`;
+      audio.id = `audio-${id}`;
       audio.autoplay = true;
       audio.playsInline = true;
       document.body.appendChild(audio);
     }
-    audio.srcObject = remoteStream;
-    audio.play().catch((err) => console.log('Audio playback waiting for gesture:', err));
+    audio.srcObject = stream;
+    audio.play().catch(console.error);
   };
 
   useEffect(() => {
+    // Generate distinct local peer instance
     const peer = new Peer();
     peer.on('open', (id) => setPeerId(id));
+    
+    peer.on('call', (call) => {
+      if (localStream.current) {
+        call.answer(localStream.current);
+        call.on('stream', (remoteStream) => handleRemoteStream(remoteStream, call.peer));
+      }
+    });
+
     peerInstance.current = peer;
 
     socket.on('connect', () => setIsConnected(true));
@@ -67,6 +77,7 @@ function App() {
       setCurrentRoom(room);
       setGameStarted(true);
       setCardFlipped(false);
+      setGameResult(null);
     });
 
     socket.on('assign-roles', ({ myRole }) => {
@@ -75,50 +86,39 @@ function App() {
     });
 
     socket.on('user-connected-voice', ({ peerId: remotePeerId }) => {
-      if (localStream.current && remotePeerId) {
+      if (localStream.current && remotePeerId && remotePeerId !== peerId) {
         const call = peerInstance.current.call(remotePeerId, localStream.current);
-        call?.on('stream', (remoteStream) => handleRemoteStream(remoteStream));
+        call?.on('stream', (remoteStream) => handleRemoteStream(remoteStream, remotePeerId));
       }
+    });
+
+    socket.on('game-over', (result) => {
+      setGameResult(result);
     });
 
     socket.on('new-message', (msg) => setMessages((prev) => [...prev, msg]));
 
     return () => socket.off();
-  }, []);
+  }, [peerId]);
 
   const enableMicrophone = async () => {
-    // Unlock WebAudio Context on mobile WebView
     const AudioContext = window.AudioContext || window.webkitAudioContext;
     if (AudioContext) {
       const ctx = new AudioContext();
-      if (ctx.state === 'suspended') {
-        await ctx.resume();
-      }
+      if (ctx.state === 'suspended') await ctx.resume();
     }
 
-    const requestAudioStream = async () => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-        localStream.current = stream;
-        setHasMicPermission(true);
-        setIsMuted(false);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      localStream.current = stream;
+      setHasMicPermission(true);
+      setIsMuted(false);
 
-        if (peerInstance.current) {
-          peerInstance.current.on('call', (call) => {
-            call.answer(stream);
-            call.on('stream', (remoteStream) => handleRemoteStream(remoteStream));
-          });
-        }
-      } catch (err) {
-        alert("Microphone permission denied or blocked by system settings.");
-        console.error("Mic Error:", err);
+      if (currentRoom && peerId) {
+        socket.emit('join-voice', { roomId: currentRoom.roomId, peerId });
       }
-    };
-
-    if (window.cordova) {
-      document.addEventListener('deviceready', requestAudioStream, false);
-    } else {
-      await requestAudioStream();
+    } catch (err) {
+      alert("Microphone permission denied.");
     }
   };
 
@@ -144,11 +144,12 @@ function App() {
   const handleJoinRoom = () => {
     socket.emit('join-room', { roomId: joinRoomId, name, peerId }, (res) => {
       if (res.error) setError(res.error);
-      else {
-        setCurrentRoom(res.room);
-        socket.emit('join-voice', { roomId: res.room.roomId, peerId });
-      }
+      else setCurrentRoom(res.room);
     });
+  };
+
+  const handleGuessChor = (suspectId) => {
+    socket.emit('make-guess', { roomId: currentRoom.roomId, suspectId });
   };
 
   const handleSendMessage = (e) => {
@@ -159,8 +160,9 @@ function App() {
     }
   };
 
-  const isSpectator = currentRoom?.spectators.some(s => s.id === socket.id);
   const isHost = currentRoom?.host === socket.id;
+  // Get other players for Wazir to guess
+  const otherPlayers = currentRoom?.players.filter((p) => p.id !== socket.id) || [];
 
   return (
     <div>
@@ -205,22 +207,14 @@ function App() {
             <div>
               <div className="glass-card">
                 <h3>Room Code: <span style={{ color: '#38bdf8' }}>{currentRoom.roomId}</span></h3>
-                {isSpectator && <span className="badge-spectator">👁️ You are Spectating</span>}
-
+                
                 <h4>Players ({currentRoom.players.length}/4)</h4>
                 {currentRoom.players.map((p) => (
                   <div key={p.id} className="player-card">
                     <span>{p.name} {p.id === currentRoom.host && '👑'}</span>
-                    <span className={p.isReady ? 'badge-ready' : 'badge-waiting'}>{p.isReady ? 'READY' : 'WAITING'}</span>
+                    <span className="badge-ready">CONNECTED</span>
                   </div>
                 ))}
-
-                {currentRoom.spectators.length > 0 && (
-                  <div style={{ marginTop: '1rem' }}>
-                    <h4>Spectators ({currentRoom.spectators.length})</h4>
-                    {currentRoom.spectators.map(s => <span key={s.id} style={{ fontSize: '0.8rem', marginRight: '0.5rem', opacity: 0.8 }}>👁️ {s.name}</span>)}
-                  </div>
-                )}
 
                 {isHost && !gameStarted && (
                   <button onClick={() => socket.emit('start-game', { roomId: currentRoom.roomId })} className="btn btn-primary" style={{ marginTop: '1rem' }}>
@@ -229,13 +223,10 @@ function App() {
                 )}
               </div>
 
-              {/* CARD ARENA WITH TAP FLIP & EXPLICIT BUTTON */}
+              {/* CARD ARENA */}
               {gameStarted && (
                 <div className="card-arena-container">
-                  <div 
-                    className={`uno-card ${cardFlipped ? 'flipped' : ''}`}
-                    onClick={() => setCardFlipped(!cardFlipped)}
-                  >
+                  <div className={`uno-card ${cardFlipped ? 'flipped' : ''}`} onClick={() => setCardFlipped(!cardFlipped)}>
                     <div className="card-face card-front">
                       <div style={{ fontSize: '3rem' }}>🂠</div>
                       <div style={{ fontSize: '0.8rem', marginTop: '0.5rem', fontWeight: 'bold' }}>TAP TO REVEAL</div>
@@ -248,13 +239,33 @@ function App() {
                     </div>
                   </div>
 
-                  <button 
-                    onClick={() => setCardFlipped(!cardFlipped)} 
-                    className="btn btn-secondary" 
-                    style={{ marginTop: '1.2rem', padding: '0.5rem 1.2rem' }}
-                  >
+                  <button onClick={() => setCardFlipped(!cardFlipped)} className="btn btn-secondary" style={{ marginTop: '1rem', width: 'auto' }}>
                     {cardFlipped ? '🙈 Hide Role' : '👁️ Reveal Role'}
                   </button>
+
+                  {/* WAZIR GUESSING PANEL */}
+                  {myRole === 'Wazir' && !gameResult && (
+                    <div className="glass-card" style={{ marginTop: '1.5rem', width: '100%' }}>
+                      <h4 style={{ color: '#38bdf8', marginBottom: '0.5rem' }}>🛡️ Wazir: Who is the Thief (Chor)?</h4>
+                      <div style={{ display: 'grid', gap: '0.5rem' }}>
+                        {otherPlayers.map((player) => (
+                          <button key={player.id} onClick={() => handleGuessChor(player.id)} className="btn btn-danger">
+                            Catch {player.name} 🥷
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* GAME RESULT DISPLAY */}
+                  {gameResult && (
+                    <div className="glass-card" style={{ marginTop: '1.5rem', width: '100%', textAlign: 'center' }}>
+                      <h3 style={{ color: gameResult.success ? '#4ade80' : '#f87171' }}>
+                        {gameResult.success ? '🎉 Wazir Caught the Thief!' : '❌ Thief Escaped!'}
+                      </h3>
+                      <p style={{ marginTop: '0.5rem' }}>{gameResult.message}</p>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -271,7 +282,7 @@ function App() {
               </div>
               <form onSubmit={handleSendMessage} className="chat-form">
                 <input type="text" placeholder="Type..." value={chatInput} onChange={(e) => setChatInput(e.target.value)} className="input-field" />
-                <button type="submit" className="btn btn-primary">Send</button>
+                <button type="submit" className="btn btn-primary" style={{ width: 'auto' }}>Send</button>
               </form>
             </div>
           </div>
