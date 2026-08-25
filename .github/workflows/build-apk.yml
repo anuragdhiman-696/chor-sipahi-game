@@ -37,58 +37,59 @@ jobs:
         run: |
           npm install -g cordova
 
+          echo "Creating Cordova project..."
           cordova create app com.anurag.chorsipahi "Chor Sipahi"
 
           cd app
 
+          echo "Copying React build..."
           rm -rf www/*
           cp -r ../client/dist/* www/
 
-          # Copy app icon if available
+          echo "Copying app icon..."
           if [ -f "../client/public/icon.png" ]; then
             cp ../client/public/icon.png icon.png
           fi
 
-          # Configure Cordova
+          echo "Configuring Cordova..."
+
           node <<'EOF'
           const fs = require("fs");
 
           let xml = fs.readFileSync("config.xml", "utf8");
 
-          xml = xml.replace(
-            "</widget>",
-            `
+          const preferences = `
               <preference name="MediaPlaybackRequiresUserAction" value="false" />
               <preference name="AllowInlineMediaPlayback" value="true" />
+          `;
 
-              <platform name="android">
-                <config-file target="AndroidManifest.xml" parent="/manifest">
-                  <uses-permission android:name="android.permission.RECORD_AUDIO" />
-                  <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
-                </config-file>
-              </platform>
-            </widget>
-            `
-          );
+          xml = xml.replace("</widget>", preferences + "\n</widget>");
 
           if (fs.existsSync("icon.png")) {
             xml = xml.replace(
               "</widget>",
-              '  <icon src="icon.png" />\n</widget>'
+              '    <icon src="icon.png" />\n</widget>'
             );
           }
 
           fs.writeFileSync("config.xml", xml);
           EOF
 
+          echo "Adding Android platform..."
           cordova platform add android
+
+          echo "Adding media capture plugin..."
           cordova plugin add cordova-plugin-media-capture
 
+          echo "Building APK..."
           cordova build android --debug
 
+          echo "Renaming APK..."
           mv \
             platforms/android/app/build/outputs/apk/debug/app-debug.apk \
             platforms/android/app/build/outputs/apk/debug/Chor-Sipahi.apk
+
+          echo "APK successfully created!"
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
@@ -102,9 +103,9 @@ jobs:
           tag_name: build-${{ github.run_number }}
           name: Chor Sipahi Game (Build #${{ github.run_number }})
           body: |
-            🎮 **Chor Sipahi Game - Android Release**
+            🎮 Chor Sipahi Game - Android Release
 
-            - React client built successfully
-            - Cordova Android APK generated
-            - Microphone permissions configured
+            Build #${{ github.run_number }}
+
+            React client packaged using Apache Cordova.
           files: app/platforms/android/app/build/outputs/apk/debug/Chor-Sipahi.apk
