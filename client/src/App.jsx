@@ -34,24 +34,24 @@ function App() {
   const [gameStarted, setGameStarted] = useState(false);
   const [myRole, setMyRole] = useState(null);
   const [cardFlipped, setCardFlipped] = useState(false);
-  const [isDealt, setIsDealt] = useState(false);
 
   // Chat
   const [messages, setMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
   const chatEndRef = useRef(null);
 
-  // Helper to safely play remote streams
+  // Helper to handle and auto-play incoming WebRTC streams cleanly
   const handleRemoteStream = (remoteStream) => {
     let audio = document.getElementById(`audio-${remoteStream.id}`);
     if (!audio) {
       audio = document.createElement('audio');
       audio.id = `audio-${remoteStream.id}`;
+      audio.autoplay = true;
+      audio.playsInline = true;
       document.body.appendChild(audio);
     }
     audio.srcObject = remoteStream;
-    audio.autoplay = true;
-    audio.play().catch((err) => console.log('Audio playback error:', err));
+    audio.play().catch((err) => console.log('Audio playback waiting for gesture:', err));
   };
 
   useEffect(() => {
@@ -67,8 +67,6 @@ function App() {
       setCurrentRoom(room);
       setGameStarted(true);
       setCardFlipped(false);
-      setIsDealt(false);
-      setTimeout(() => setIsDealt(true), 150);
     });
 
     socket.on('assign-roles', ({ myRole }) => {
@@ -89,6 +87,15 @@ function App() {
   }, []);
 
   const enableMicrophone = async () => {
+    // Unlock WebAudio Context on mobile WebView
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (AudioContext) {
+      const ctx = new AudioContext();
+      if (ctx.state === 'suspended') {
+        await ctx.resume();
+      }
+    }
+
     const requestAudioStream = async () => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
@@ -103,7 +110,7 @@ function App() {
           });
         }
       } catch (err) {
-        alert("Microphone access failed. Please enable permissions in App Settings.");
+        alert("Microphone permission denied or blocked by system settings.");
         console.error("Mic Error:", err);
       }
     };
@@ -222,25 +229,32 @@ function App() {
                 )}
               </div>
 
-              {/* FLIP CARD AREA */}
+              {/* CARD ARENA WITH TAP FLIP & EXPLICIT BUTTON */}
               {gameStarted && (
-                <div className="card-arena">
+                <div className="card-arena-container">
                   <div 
-                    className={`uno-card ${isDealt ? 'dealt' : ''} ${cardFlipped ? 'flipped' : ''}`} 
-                    onClick={() => setCardFlipped((prev) => !prev)}
-                    style={{ cursor: 'pointer' }}
+                    className={`uno-card ${cardFlipped ? 'flipped' : ''}`}
+                    onClick={() => setCardFlipped(!cardFlipped)}
                   >
-                    <div className="card-face">
+                    <div className="card-face card-front">
                       <div style={{ fontSize: '3rem' }}>🂠</div>
-                      <div style={{ fontSize: '0.75rem', marginTop: '0.5rem' }}>TAP TO REVEAL</div>
+                      <div style={{ fontSize: '0.8rem', marginTop: '0.5rem', fontWeight: 'bold' }}>TAP TO REVEAL</div>
                     </div>
                     <div className="card-face card-back">
-                      <div style={{ fontSize: '3rem' }}>{ROLE_CONFIG[myRole]?.emoji || '❓'}</div>
-                      <div style={{ fontWeight: '800', color: ROLE_CONFIG[myRole]?.color || '#ffffff' }}>
+                      <div style={{ fontSize: '3.5rem' }}>{ROLE_CONFIG[myRole]?.emoji || '❓'}</div>
+                      <div style={{ fontWeight: '800', fontSize: '1.2rem', color: ROLE_CONFIG[myRole]?.color || '#ffffff' }}>
                         {myRole || 'Assigning...'}
                       </div>
                     </div>
                   </div>
+
+                  <button 
+                    onClick={() => setCardFlipped(!cardFlipped)} 
+                    className="btn btn-secondary" 
+                    style={{ marginTop: '1.2rem', padding: '0.5rem 1.2rem' }}
+                  >
+                    {cardFlipped ? '🙈 Hide Role' : '👁️ Reveal Role'}
+                  </button>
                 </div>
               )}
             </div>
