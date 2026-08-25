@@ -3,15 +3,17 @@ import io from 'socket.io-client';
 import Peer from 'peerjs';
 import './App.css';
 
+// Pointing directly to your deployed Render backend URL
 const SOCKET_SERVER_URL = window.location.hostname === 'localhost' 
   ? 'http://localhost:5000' 
-  : window.location.origin;
+  : 'https://chor-sipahi-game.onrender.com';
 
 const socket = io(SOCKET_SERVER_URL, { 
   autoConnect: true,
   reconnection: true,
   reconnectionAttempts: 10,
-  reconnectionDelay: 1000
+  reconnectionDelay: 1000,
+  transports: ['websocket', 'polling'] // Ensures fallback support
 });
 
 const PEER_CONFIG = {
@@ -65,7 +67,7 @@ export default function App() {
 
     const onConnectError = (err) => {
       setIsConnected(false);
-      setErrorMessage(`Connection error: ${err.message}. Check backend server.`);
+      setErrorMessage(`Connection error: ${err.message}. Backend might be spinning up on Render.`);
     };
 
     socket.on('connect', onConnect);
@@ -344,7 +346,7 @@ export default function App() {
     if (!playerName.trim()) return setErrorMessage('Please enter your name.');
     if (!socket.connected) {
       socket.connect();
-      return setErrorMessage('Connecting to server... Please try again in a moment.');
+      return setErrorMessage('Connecting to server... Render free instances can take up to 50 seconds to wake up.');
     }
     socket.emit('create-room', { playerName });
   };
@@ -354,7 +356,7 @@ export default function App() {
     if (!roomIdInput.trim()) return setErrorMessage('Please enter a Room Code.');
     if (!socket.connected) {
       socket.connect();
-      return setErrorMessage('Connecting to server... Please try again in a moment.');
+      return setErrorMessage('Connecting to server... Render free instances can take up to 50 seconds to wake up.');
     }
     socket.emit('join-room', { roomId: roomIdInput, playerName });
   };
