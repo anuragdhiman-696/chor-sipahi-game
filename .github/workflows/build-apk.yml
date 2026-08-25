@@ -1,80 +1,82 @@
 name: Build Android APK
 
 on:
-push:
-branches: [main, master]
-workflow_dispatch:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
 
 permissions:
-contents: read
+  contents: read
 
 jobs:
-build:
-runs-on: ubuntu-latest
+  build:
+    runs-on: ubuntu-latest
 
-steps:
-  - name: Checkout Repository
-    uses: actions/checkout@v4
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-  - name: Setup Node.js
-    uses: actions/setup-node@v4
-    with:
-      node-version: 20
-      cache: npm
-      cache-dependency-path: client/package-lock.json
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: client/package-lock.json
 
-  - name: Install Client Dependencies
-    working-directory: client
-    run: npm ci
+      - name: Install Client Dependencies
+        working-directory: client
+        run: npm ci
 
-  - name: Build Frontend
-    working-directory: client
-    run: npm run build
+      - name: Build Frontend
+        working-directory: client
+        run: npm run build
 
-  - name: Prepare Cordova Web Assets
-    run: |
-      rm -rf www
-      mkdir -p www
-      cp -r client/dist/. www/
+      - name: Prepare Cordova Web Assets
+        run: |
+          rm -rf www
+          mkdir -p www
+          cp -r client/dist/. www/
 
-  - name: Setup Java
-    uses: actions/setup-java@v4
-    with:
-      distribution: temurin
-      java-version: '17'
-      cache: gradle
+      - name: Setup Java JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
 
-  - name: Setup Android SDK
-    uses: android-actions/setup-android@v3
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
-  - name: Install Android SDK Components
-    run: |
-      sdkmanager "platform-tools"
-      yes | sdkmanager --licenses || true
+      - name: Install Android Build Tools & Accept Licenses
+        run: |
+          sdkmanager "platform-tools" "platforms;android-33" "build-tools;33.0.2"
+          yes | sdkmanager --licenses || true
 
-  - name: Install Cordova
-    run: npm install -g cordova
+      - name: Install Cordova CLI
+        run: npm install -g cordova
 
-  - name: Install Cordova Android Platform
-    run: |
-      cordova platform add android --no-telemetry
+      - name: Add Cordova Android Platform
+        run: |
+          cordova platform add android@12.0.0 --no-telemetry || true
 
-  - name: Build Debug APK
-    run: |
-      cordova build android --debug --no-telemetry
+      - name: Grant Executable Permissions to Gradle
+        run: |
+          if [ -f platforms/android/gradlew ]; then
+            chmod +x platforms/android/gradlew
+          fi
 
-  - name: Find APK
-    run: |
-      echo "Searching for generated APK..."
-      find . -type f -name "*.apk" -print
+      - name: Build Debug APK
+        run: |
+          cordova build android --debug --no-telemetry
 
-  - name: Upload APK Artifact
-    uses: actions/upload-artifact@v4
-    with:
-      name: chor-sipahi-debug-apk
-      path: |
-        platforms/android/app/build/outputs/apk/debug/app-debug.apk
-        platforms/android/app/build/outputs/apk/**/*.apk
-      if-no-files-found: error
-      retention-days: 14
-```
+      - name: Verify APK Generation
+        run: |
+          echo "Searching for generated APK files..."
+          find platforms/android -type f -name "*.apk"
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: chor-sipahi-debug-apk
+          path: platforms/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
