@@ -10,10 +10,10 @@ const BACKEND_URL = import.meta.env.PROD
 const socket = io(BACKEND_URL, { transports: ['websocket', 'polling'] });
 
 const ROLE_CONFIG = {
-  Raja: { emoji: '👑', color: '#ecc94b' },
-  Wazir: { emoji: '🛡️', color: '#38bdf8' },
-  Sipahi: { emoji: '👮', color: '#4ade80' },
-  Chor: { emoji: '🥷', color: '#f87171' }
+  Raja: { emoji: '👑', points: 1000, color: '#ecc94b' },
+  Wazir: { emoji: '🛡️', points: 800, color: '#38bdf8' },
+  Sipahi: { emoji: '👮', points: 500, color: '#4ade80' },
+  Chor: { emoji: '🥷', points: 0, color: '#f87171' }
 };
 
 function App() {
@@ -30,7 +30,7 @@ function App() {
   const peerInstance = useRef(null);
   const localStream = useRef(null);
 
-  // Game & Card States
+  // Game States
   const [gameStarted, setGameStarted] = useState(false);
   const [myRole, setMyRole] = useState(null);
   const [cardFlipped, setCardFlipped] = useState(false);
@@ -41,7 +41,6 @@ function App() {
   const [chatInput, setChatInput] = useState('');
   const chatEndRef = useRef(null);
 
-  // Safely play WebRTC audio streams dynamically
   const handleRemoteStream = (stream, id) => {
     let audio = document.getElementById(`audio-${id}`);
     if (!audio) {
@@ -52,18 +51,17 @@ function App() {
       document.body.appendChild(audio);
     }
     audio.srcObject = stream;
-    audio.play().catch(console.error);
+    audio.play().catch((err) => console.log('Audio playback waiting:', err));
   };
 
   useEffect(() => {
-    // Generate distinct local peer instance
     const peer = new Peer();
     peer.on('open', (id) => setPeerId(id));
     
     peer.on('call', (call) => {
       if (localStream.current) {
         call.answer(localStream.current);
-        call.on('stream', (remoteStream) => handleRemoteStream(remoteStream, call.peer));
+        call.on('stream', (stream) => handleRemoteStream(stream, call.peer));
       }
     });
 
@@ -88,7 +86,7 @@ function App() {
     socket.on('user-connected-voice', ({ peerId: remotePeerId }) => {
       if (localStream.current && remotePeerId && remotePeerId !== peerId) {
         const call = peerInstance.current.call(remotePeerId, localStream.current);
-        call?.on('stream', (remoteStream) => handleRemoteStream(remoteStream, remotePeerId));
+        call?.on('stream', (stream) => handleRemoteStream(stream, remotePeerId));
       }
     });
 
@@ -102,12 +100,6 @@ function App() {
   }, [peerId]);
 
   const enableMicrophone = async () => {
-    const AudioContext = window.AudioContext || window.webkitAudioContext;
-    if (AudioContext) {
-      const ctx = new AudioContext();
-      if (ctx.state === 'suspended') await ctx.resume();
-    }
-
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       localStream.current = stream;
@@ -135,6 +127,7 @@ function App() {
   };
 
   const handleCreateRoom = () => {
+    if (!name.trim()) return setError('Please enter your name');
     socket.emit('create-room', { name, peerId }, (res) => {
       if (res.error) setError(res.error);
       else setCurrentRoom(res.room);
@@ -142,13 +135,14 @@ function App() {
   };
 
   const handleJoinRoom = () => {
+    if (!name.trim() || !joinRoomId.trim()) return setError('Name and Room Code required');
     socket.emit('join-room', { roomId: joinRoomId, name, peerId }, (res) => {
       if (res.error) setError(res.error);
       else setCurrentRoom(res.room);
     });
   };
 
-  const handleGuessChor = (suspectId) => {
+  const handleCatchChor = (suspectId) => {
     socket.emit('make-guess', { roomId: currentRoom.roomId, suspectId });
   };
 
@@ -161,7 +155,6 @@ function App() {
   };
 
   const isHost = currentRoom?.host === socket.id;
-  // Get other players for Wazir to guess
   const otherPlayers = currentRoom?.players.filter((p) => p.id !== socket.id) || [];
 
   return (
@@ -169,7 +162,7 @@ function App() {
       <nav className="navbar">
         <div className="brand">
           <span>👑</span>
-          <span className="brand-title">CROWN & THIEF</span>
+          <span className="brand-title">CHOR SIPAHI</span>
         </div>
         
         <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
@@ -192,7 +185,7 @@ function App() {
         {!currentRoom && (
           <div className="glass-card" style={{ maxWidth: '450px', margin: '2rem auto' }}>
             <h2>Enter Arena</h2>
-            {error && <div style={{ color: '#f87171', marginBottom: '0.5rem' }}>{error}</div>}
+            {error && <div style={{ color: '#f87171', margin: '0.5rem 0' }}>{error}</div>}
             <input type="text" placeholder="Your Name" value={name} onChange={(e) => setName(e.target.value)} className="input-field" style={{ marginBottom: '1rem' }} />
             <button onClick={handleCreateRoom} className="btn btn-primary" style={{ marginBottom: '1rem' }}>✨ Create Room</button>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
@@ -205,16 +198,19 @@ function App() {
         {currentRoom && (
           <div className="grid-workspace">
             <div>
-              <div className="glass-card">
+              {/* LEADERBOARD & POINTS TABLE */}
+              <div className="glass-card" style={{ marginBottom: '1rem' }}>
                 <h3>Room Code: <span style={{ color: '#38bdf8' }}>{currentRoom.roomId}</span></h3>
                 
-                <h4>Players ({currentRoom.players.length}/4)</h4>
-                {currentRoom.players.map((p) => (
-                  <div key={p.id} className="player-card">
-                    <span>{p.name} {p.id === currentRoom.host && '👑'}</span>
-                    <span className="badge-ready">CONNECTED</span>
-                  </div>
-                ))}
+                <h4 style={{ marginTop: '1rem' }}>🏆 Scoreboard</h4>
+                <div style={{ marginTop: '0.5rem' }}>
+                  {currentRoom.players.map((p) => (
+                    <div key={p.id} className="player-card">
+                      <span>{p.name} {p.id === currentRoom.host && '👑'}</span>
+                      <span style={{ fontWeight: 'bold', color: '#ecc94b' }}>{p.score || 0} pts</span>
+                    </div>
+                  ))}
+                </div>
 
                 {isHost && !gameStarted && (
                   <button onClick={() => socket.emit('start-game', { roomId: currentRoom.roomId })} className="btn btn-primary" style={{ marginTop: '1rem' }}>
@@ -236,6 +232,9 @@ function App() {
                       <div style={{ fontWeight: '800', fontSize: '1.2rem', color: ROLE_CONFIG[myRole]?.color || '#ffffff' }}>
                         {myRole || 'Assigning...'}
                       </div>
+                      <div style={{ fontSize: '0.8rem', opacity: 0.8 }}>
+                        {ROLE_CONFIG[myRole]?.points ? `${ROLE_CONFIG[myRole].points} Pts` : ''}
+                      </div>
                     </div>
                   </div>
 
@@ -246,10 +245,10 @@ function App() {
                   {/* WAZIR GUESSING PANEL */}
                   {myRole === 'Wazir' && !gameResult && (
                     <div className="glass-card" style={{ marginTop: '1.5rem', width: '100%' }}>
-                      <h4 style={{ color: '#38bdf8', marginBottom: '0.5rem' }}>🛡️ Wazir: Who is the Thief (Chor)?</h4>
+                      <h4 style={{ color: '#38bdf8', marginBottom: '0.5rem' }}>🛡️ Wazir: Catch the Thief (Chor)</h4>
                       <div style={{ display: 'grid', gap: '0.5rem' }}>
                         {otherPlayers.map((player) => (
-                          <button key={player.id} onClick={() => handleGuessChor(player.id)} className="btn btn-danger">
+                          <button key={player.id} onClick={() => handleCatchChor(player.id)} className="btn btn-danger">
                             Catch {player.name} 🥷
                           </button>
                         ))}
@@ -257,19 +256,32 @@ function App() {
                     </div>
                   )}
 
-                  {/* GAME RESULT DISPLAY */}
+                  {/* ROUND RESULT & REVEAL TABLE */}
                   {gameResult && (
                     <div className="glass-card" style={{ marginTop: '1.5rem', width: '100%', textAlign: 'center' }}>
                       <h3 style={{ color: gameResult.success ? '#4ade80' : '#f87171' }}>
                         {gameResult.success ? '🎉 Wazir Caught the Thief!' : '❌ Thief Escaped!'}
                       </h3>
-                      <p style={{ marginTop: '0.5rem' }}>{gameResult.message}</p>
+                      <p style={{ margin: '0.5rem 0' }}>{gameResult.message}</p>
+                      
+                      {gameResult.scores && (
+                        <div style={{ marginTop: '1rem', textAlign: 'left' }}>
+                          <h4>Round Points:</h4>
+                          {Object.entries(gameResult.scores).map(([pName, pts]) => (
+                            <div key={pName} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.2rem 0' }}>
+                              <span>{pName}:</span>
+                              <strong>+{pts} pts</strong>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
               )}
             </div>
 
+            {/* CHAT SECTION */}
             <div className="glass-card chat-card">
               <div className="chat-header">💬 IN-GAME CHAT</div>
               <div className="chat-messages">

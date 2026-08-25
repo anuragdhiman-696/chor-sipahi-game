@@ -48,7 +48,7 @@ io.on('connection', (socket) => {
     callback({ success: true, room: newRoom });
   });
 
-  // JOIN ROOM (Auto-assigns to Spectators if room >= 4 or game in progress)
+  // JOIN ROOM
   socket.on('join-room', ({ roomId, name, peerId }, callback) => {
     const cleanRoomId = roomId?.trim().toUpperCase();
     const room = rooms.get(cleanRoomId);
@@ -81,7 +81,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // START GAME
+  // START GAME & DEAL CARDS
   socket.on('start-game', ({ roomId }) => {
     const room = rooms.get(roomId);
     if (!room || room.players.length !== 4) return;
@@ -89,10 +89,13 @@ io.on('connection', (socket) => {
     room.gameStarted = true;
     const shuffledRoles = shuffleArray(ROLES);
 
-    room.players.forEach((p, idx) => { p.role = shuffledRoles[idx]; });
+    room.players.forEach((p, idx) => { 
+      p.role = shuffledRoles[idx]; 
+    });
 
     io.to(roomId).emit('game-started', { room });
 
+    // Send private roles to each individual client
     room.players.forEach((p) => {
       io.to(p.id).emit('assign-roles', { 
         myRole: p.role,
@@ -103,6 +106,53 @@ io.on('connection', (socket) => {
     const raja = room.players.find(p => p.role === 'Raja');
     const wazir = room.players.find(p => p.role === 'Wazir');
     io.to(roomId).emit('reveal-raja', { rajaId: raja.id, rajaName: raja.name, wazirId: wazir.id });
+  });
+
+  // WAZIR GUESSING & SCORE CALCULATION
+  socket.on('make-guess', ({ roomId, suspectId }) => {
+    const room = rooms.get(roomId);
+    if (!room || !room.gameStarted) return;
+
+    const wazir = room.players.find(p => p.role === 'Wazir');
+    const chor = room.players.find(p => p.role === 'Chor');
+
+    // Only Wazir can make a guess
+    if (socket.id !== wazir?.id) return;
+
+    const isCorrect = chor.id === suspectId;
+    const roundScores = {};
+
+    // Calculate score updates based on original game rules
+    room.players.forEach(p => {
+      if (!p.score) p.score = 0;
+
+      let addedPts = 0;
+      if (p.role === 'Raja') {
+        addedPts = 1000;
+      } else if (p.role === 'Sipahi') {
+        addedPts = 500;
+      } else if (p.role === 'Wazir') {
+        addedPts = isCorrect ? 800 : 0;
+      } else if (p.role === 'Chor') {
+        addedPts = isCorrect ? 0 : 800;
+      }
+
+      p.score += addedPts;
+      roundScores[p.name] = addedPts;
+    });
+
+    // Reset round state for potential next round
+    room.gameStarted = false;
+
+    // Broadcast updated score matrix & outcome
+    io.to(roomId).emit('room-updated', { room });
+    io.to(roomId).emit('game-over', {
+      success: isCorrect,
+      scores: roundScores,
+      message: isCorrect 
+        ? `🎉 ${wazir.name} (Wazir) correctly identified ${chor.name} as the Chor!` 
+        : `❌ ${wazir.name} (Wazir) guessed wrong! ${chor.name} was the Thief and steals the points!`
+    });
   });
 
   // VOICE SIGNALING
@@ -126,7 +176,7 @@ io.on('connection', (socket) => {
     io.to(roomId).emit('new-message', msg);
   });
 
-  // DISCONNECT
+  // DISCONNECT HANDLER
   socket.on('disconnect', () => {
     for (const [roomId, room] of rooms.entries()) {
       let index = room.players.findIndex(p => p.id === socket.id);
