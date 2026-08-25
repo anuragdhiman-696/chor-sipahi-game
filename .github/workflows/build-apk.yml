@@ -51,8 +51,8 @@ jobs:
       - name: Install Android SDK
         run: |
           sdkmanager "platform-tools"
-          sdkmanager "platforms;android-35"
-          sdkmanager "build-tools;35.0.0"
+          sdkmanager "platforms;android-36"
+          sdkmanager "build-tools;36.0.0"
           yes | sdkmanager --licenses || true
 
       - name: Install Cordova CLI
@@ -61,7 +61,7 @@ jobs:
       - name: Add Cordova Android Platform
         run: |
           cordova platform remove android --no-telemetry || true
-          cordova platform add android@14.0.1 --no-telemetry
+          cordova platform add android@15.0.1 --no-telemetry
 
       - name: Build Debug APK
         run: |
