@@ -41,21 +41,39 @@ jobs:
           rm -rf www/*
           cp -r ../client/dist/* www/
 
-          # Add Android Platform & Native Plugins
+          # Configure config.xml via Node to avoid XML corruption
+          node -e '
+            const fs = require("fs");
+            let xml = fs.readFileSync("config.xml", "utf8");
+            
+            const androidBlock = `
+    <preference name="MediaPlaybackRequiresUserAction" value="false" />
+    <preference name="AllowInlineMediaPlayback" value="true" />
+    <platform name="android">
+        <edit-config file="app/src/main/AndroidManifest.xml" mode="merge" target="/manifest">
+            <manifest xmlns:android="http://schemas.android.com/apk/res/android" />
+        </edit-config>
+        <config-file target="AndroidManifest.xml" parent="/manifest">
+            <uses-permission android:name="android.permission.RECORD_AUDIO" />
+            <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+            <uses-permission android:name="android.permission.AUDIO_CAPTURE" />
+        </config-file>
+    </platform>
+            `;
+            
+            xml = xml.replace("</widget>", androidBlock + "\n</widget>");
+            
+            if (fs.existsSync("../client/public/icon.png")) {
+              fs.copyFileSync("../client/public/icon.png", "icon.png");
+              xml = xml.replace("</widget>", "    <icon src=\"icon.png\" />\n</widget>");
+            }
+            
+            fs.writeFileSync("config.xml", xml);
+          '
+
+          # Add Platform and Build
           cordova platform add android
           cordova plugin add cordova-plugin-media-capture
-          cordova plugin add cordova-plugin-android-permissions
-
-          # Inject WebView Hardware & Microphone Access Flags into config.xml
-          sed -i 's|</widget>|  <preference name="MediaPlaybackRequiresUserAction" value="false" />\n  <preference name="AllowInlineMediaPlayback" value="true" />\n  <preference name="android-targetSdkVersion" value="33" />\n  <config-file target="AndroidManifest.xml" parent="/*">\n    <uses-permission name="android.permission.RECORD_AUDIO" />\n    <uses-permission name="android.permission.MODIFY_AUDIO_SETTINGS" />\n    <uses-permission name="android.permission.AUDIO_CAPTURE" />\n  </config-file>\n</widget>|' config.xml
-
-          # Copy Icon safely if present
-          if [ -f "../client/public/icon.png" ]; then
-            cp ../client/public/icon.png icon.png
-            sed -i 's|</widget>|  <icon src="icon.png" />\n</widget>|' config.xml
-          fi
-
-          # Build Debug APK
           cordova build android --debug
 
           # Rename output APK
@@ -75,6 +93,6 @@ jobs:
           body: |
             🎮 **Chor Sipahi Game - Android Release**
             
-            - Added native WebView audio capture permissions
-            - Ready for direct installation on Android
+            - Fixed Gradle XML manifest injection
+            - Enabled Android WebView audio permissions
           files: app/platforms/android/app/build/outputs/apk/debug/Chor-Sipahi.apk
