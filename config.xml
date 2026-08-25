@@ -1,26 +1,32 @@
-<widget id="com.example.chorsipahi" version="1.0.0" xmlns="http://www.w3.org/ns/widgets" xmlns:cdv="http://cordova.apache.org/ns/1.0" xmlns:android="http://schemas.android.com/apk/res/android">
+<?xml version='1.0' encoding='utf-8'?>
+<widget id="com.chorsipahi.game" version="1.0.0" xmlns="http://www.w3.org/ns/widgets" xmlns:cdv="http://cordova.apache.org/ns/1.0" xmlns:android="http://schemas.android.com/apk/res/android">
     <name>Chor Sipahi</name>
     <description>Chor Sipahi Game</description>
+    <author email="dev@example.com" href="http://cordova.io">Developer</author>
     <content src="index.html" />
 
-    <!-- Access Navigation Rules -->
+    <!-- Access & Navigation Rules -->
     <access origin="*" />
     <allow-navigation href="*" />
     <allow-intent href="*" />
 
+    <!-- Default Icon -->
+    <icon src="res/icon.png" />
+
     <platform name="android">
         <icon src="res/icon.png" />
-        
-        <!-- Enable Network Access & Manifest Overrides -->
+
+        <!-- Correctly injection of Application Attributes -->
+        <edit-config file="AndroidManifest.xml" mode="merge" target="/manifest/application">
+            <application android:usesCleartextTraffic="true" />
+        </edit-config>
+
+        <!-- Permissions Injection -->
         <config-file target="AndroidManifest.xml" parent="/manifest">
             <uses-permission android:name="android.permission.INTERNET" />
             <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
             <uses-permission android:name="android.permission.RECORD_AUDIO" />
             <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
-        </config-file>
-
-        <config-file target="AndroidManifest.xml" parent="/manifest/application">
-            <application android:usesCleartextTraffic="true" />
         </config-file>
     </platform>
 </widget>
