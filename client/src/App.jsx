@@ -7,9 +7,13 @@ const SOCKET_SERVER_URL = window.location.hostname === 'localhost'
   ? 'http://localhost:5000' 
   : window.location.origin;
 
-const socket = io(SOCKET_SERVER_URL, { autoConnect: true });
+const socket = io(SOCKET_SERVER_URL, { 
+  autoConnect: true,
+  reconnection: true,
+  reconnectionAttempts: 10,
+  reconnectionDelay: 1000
+});
 
-// STUN/TURN configuration
 const PEER_CONFIG = {
   config: {
     iceServers: [
@@ -29,6 +33,9 @@ export default function App() {
   const [newMessage, setNewMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
 
+  // Socket Connection Status State
+  const [isConnected, setIsConnected] = useState(socket.connected);
+
   // Voice States
   const [voiceJoined, setVoiceJoined] = useState(false);
   const [selfMuted, setSelfMuted] = useState(false);
@@ -40,12 +47,32 @@ export default function App() {
   // Refs for WebRTC & Audio
   const peerRef = useRef(null);
   const localStreamRef = useRef(null);
-  const peerCallsRef = useRef({}); // peerId -> callObj
-  const audioElementsRef = useRef({}); // socketId -> HTMLAudioElement
+  const peerCallsRef = useRef({});
+  const audioElementsRef = useRef({});
   const audioAnalyserRef = useRef(null);
 
-  // Initialize Socket Event Handlers
   useEffect(() => {
+    // Socket Connection Lifecycle Events
+    const onConnect = () => {
+      setIsConnected(true);
+      setErrorMessage('');
+    };
+
+    const onDisconnect = (reason) => {
+      setIsConnected(false);
+      setErrorMessage(`Disconnected from server (${reason}). Reconnecting...`);
+    };
+
+    const onConnectError = (err) => {
+      setIsConnected(false);
+      setErrorMessage(`Connection error: ${err.message}. Check backend server.`);
+    };
+
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
+    socket.on('connect_error', onConnectError);
+
+    // Game & Room Handlers
     socket.on('room-created', ({ roomId, room }) => {
       setCurrentRoom(room);
       setGameState('lobby');
@@ -103,6 +130,9 @@ export default function App() {
     });
 
     return () => {
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
+      socket.off('connect_error', onConnectError);
       socket.off('room-created');
       socket.off('room-joined');
       socket.off('player-joined');
@@ -117,14 +147,12 @@ export default function App() {
     };
   }, [selfMuted]);
 
-  // Clean up Peer and Audio on App Unmount
   useEffect(() => {
     return () => {
       cleanupVoice();
     };
   }, []);
 
-  // Voice Setup & Event Registration
   const joinVoiceChannel = async () => {
     if (voiceJoined) return;
     setVoiceError('');
@@ -150,26 +178,20 @@ export default function App() {
         socket.emit('join-voice', { roomId: currentRoom.id, peerId });
       });
 
-      // Handle incoming calls
       peer.on('call', (call) => {
         call.answer(localStreamRef.current);
         call.on('stream', (remoteStream) => {
           attachRemoteStream(call.metadata?.socketId, remoteStream);
         });
-        call.on('close', () => {
-          cleanupCall(call.metadata?.socketId);
-        });
-        call.on('error', () => {
-          cleanupCall(call.metadata?.socketId);
-        });
+        call.on('close', () => cleanupCall(call.metadata?.socketId));
+        call.on('error', () => cleanupCall(call.metadata?.socketId));
       });
 
       peer.on('error', (err) => {
         console.error('PeerJS Error:', err);
-        setVoiceError('Voice connection error. Retrying recommended.');
+        setVoiceError('Voice connection error.');
       });
 
-      // Handle list of existing voice participants from server
       socket.on('voice-participants', (participants) => {
         participants.forEach(({ socketId, peerId }) => {
           if (peerId && localStreamRef.current) {
@@ -188,7 +210,6 @@ export default function App() {
         });
       });
 
-      // Handle newly connected participant
       socket.on('user-connected-voice', ({ socketId, peerId }) => {
         if (peerId && localStreamRef.current && peerRef.current) {
           const call = peerRef.current.call(peerId, localStreamRef.current, {
@@ -255,7 +276,7 @@ export default function App() {
       document.body.appendChild(audioEl);
     }
     audioEl.srcObject = stream;
-    audioEl.play().catch(e => console.log('Autoplay restriction handling:', e));
+    audioEl.play().catch(e => console.log('Autoplay handling:', e));
   };
 
   const removeRemoteAudio = (remoteSocketId) => {
@@ -290,7 +311,7 @@ export default function App() {
   };
 
   const toggleSelfMute = () => {
-    if (hostMuted) return; // Prevent bypassing host mute
+    if (hostMuted) return;
     const newMuteState = !selfMuted;
     setSelfMuted(newMuteState);
 
@@ -303,7 +324,6 @@ export default function App() {
     socket.emit('voice-mute-self', { roomId: currentRoom.id, selfMuted: newMuteState });
   };
 
-  // Host Control Actions
   const handleHostMute = (targetSocketId) => {
     socket.emit('host-mute-player', { roomId: currentRoom.id, targetSocketId });
   };
@@ -320,15 +340,22 @@ export default function App() {
     socket.emit('host-unmute-all', { roomId: currentRoom.id });
   };
 
-  // Game/Room Actions
   const handleCreateRoom = () => {
     if (!playerName.trim()) return setErrorMessage('Please enter your name.');
+    if (!socket.connected) {
+      socket.connect();
+      return setErrorMessage('Connecting to server... Please try again in a moment.');
+    }
     socket.emit('create-room', { playerName });
   };
 
   const handleJoinRoom = () => {
     if (!playerName.trim()) return setErrorMessage('Please enter your name.');
     if (!roomIdInput.trim()) return setErrorMessage('Please enter a Room Code.');
+    if (!socket.connected) {
+      socket.connect();
+      return setErrorMessage('Connecting to server... Please try again in a moment.');
+    }
     socket.emit('join-room', { roomId: roomIdInput, playerName });
   };
 
@@ -353,6 +380,12 @@ export default function App() {
       <header className="app-header">
         <h1>CHOR SIPAHI</h1>
         <p className="subtitle">4-Player Realtime Voice & Strategy Game</p>
+        
+        {/* ONLINE / OFFLINE STATUS INDICATOR */}
+        <div className={`status-indicator ${isConnected ? 'online' : 'offline'}`}>
+          <span className="status-dot"></span>
+          <span className="status-text">{isConnected ? 'Server Connected' : 'Server Offline'}</span>
+        </div>
       </header>
 
       {errorMessage && <div className="error-banner">{errorMessage}</div>}
@@ -370,7 +403,13 @@ export default function App() {
             />
           </div>
           <div className="action-buttons">
-            <button className="btn btn-primary" onClick={handleCreateRoom}>Create Room</button>
+            <button 
+              className="btn btn-primary" 
+              onClick={handleCreateRoom}
+              disabled={!isConnected}
+            >
+              Create Room
+            </button>
             <div className="divider">OR</div>
             <div className="join-group">
               <input 
@@ -379,7 +418,13 @@ export default function App() {
                 value={roomIdInput} 
                 onChange={(e) => setRoomIdInput(e.target.value.toUpperCase())}
               />
-              <button className="btn btn-secondary" onClick={handleJoinRoom}>Join Room</button>
+              <button 
+                className="btn btn-secondary" 
+                onClick={handleJoinRoom}
+                disabled={!isConnected}
+              >
+                Join Room
+              </button>
             </div>
           </div>
         </div>
@@ -394,7 +439,6 @@ export default function App() {
                 <span className="badge">{gameState.toUpperCase()}</span>
               </div>
 
-              {/* VOICE CONTROLS & STATUS PANEL */}
               <div className="voice-panel">
                 <h3>Voice Chat</h3>
                 {voiceError && <p className="voice-error">{voiceError}</p>}
@@ -426,7 +470,6 @@ export default function App() {
                 )}
               </div>
 
-              {/* PLAYER LIST WITH VOICE STATUS */}
               <div className="players-section">
                 <h3>Players ({currentRoom.players.length})</h3>
                 <div className="player-grid">
@@ -481,7 +524,6 @@ export default function App() {
             </div>
           </main>
 
-          {/* CHAT PANEL */}
           <aside className="chat-panel card">
             <h3>Text Chat</h3>
             <div className="chat-messages">
