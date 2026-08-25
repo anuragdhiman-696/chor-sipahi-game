@@ -1,19 +1,210 @@
-/* UNO / Playing Card Dealing Animation */
+:root {
+  --bg-dark: #0f172a;
+  --card-bg: rgba(30, 41, 59, 0.7);
+  --accent-blue: #38bdf8;
+  --text-main: #f8fafc;
+  --border-color: rgba(255, 255, 255, 0.1);
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg-dark);
+  color: var(--text-main);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  min-height: 100vh;
+}
+
+/* NAVBAR */
+.navbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 2rem;
+  background: rgba(15, 23, 42, 0.8);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: #fff;
+}
+
+/* MAIN LAYOUT */
+.main-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+}
+
+.grid-workspace {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 1.5rem;
+}
+
+@media (max-width: 768px) {
+  .grid-workspace {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* CARDS & CONTAINERS */
+.glass-card {
+  background: var(--card-bg);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: 1.5rem;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+}
+
+.player-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  margin-bottom: 0.5rem;
+}
+
+/* INPUTS & BUTTONS */
+.input-field {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: #fff;
+  box-sizing: border-box;
+}
+
+.input-field:focus {
+  outline: none;
+  border-color: var(--accent-blue);
+}
+
+.btn {
+  padding: 0.75rem 1.25rem;
+  border: none;
+  border-radius: 8px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-primary {
+  background: #2563eb;
+  color: #fff;
+}
+
+.btn-primary:hover {
+  background: #1d4ed8;
+}
+
+.btn-secondary {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.btn-success {
+  background: #16a34a;
+  color: #fff;
+}
+
+.btn-danger {
+  background: #dc2626;
+  color: #fff;
+}
+
+/* BADGES */
+.badge-ready {
+  background: #22c55e;
+  color: #fff;
+  font-size: 0.7rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 6px;
+  font-weight: 700;
+}
+
+.badge-waiting {
+  background: #eab308;
+  color: #000;
+  font-size: 0.7rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 6px;
+  font-weight: 700;
+}
+
+.badge-spectator {
+  display: inline-block;
+  background: #a855f7;
+  color: #fff;
+  font-size: 0.75rem;
+  padding: 0.3rem 0.6rem;
+  border-radius: 12px;
+  font-weight: 700;
+  margin-top: 0.5rem;
+}
+
+/* CHAT SYSTEM */
+.chat-card {
+  display: flex;
+  flex-direction: column;
+  height: 500px;
+}
+
+.chat-header {
+  font-weight: 800;
+  font-size: 0.9rem;
+  letter-spacing: 1px;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 1rem;
+}
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.chat-msg {
+  background: rgba(255, 255, 255, 0.05);
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+
+.chat-form {
+  display: flex;
+  gap: 0.5rem;
+}
+
+/* UNO / PLAYING CARD DEALING ANIMATION */
 .card-arena {
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 1.5rem;
   perspective: 1000px;
-  margin: 2rem 0;
+  margin: 3rem 0;
 }
 
 .uno-card {
-  width: 140px;
-  height: 200px;
+  width: 160px;
+  height: 240px;
   background: linear-gradient(135deg, #1e293b, #0f172a);
-  border: 2px solid #38bdf8;
-  border-radius: 12px;
+  border: 2px solid var(--accent-blue);
+  border-radius: 16px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -21,7 +212,8 @@
   cursor: pointer;
   transform-style: preserve-3d;
   transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 15px 35px rgba(0, 0, 0, 0.6);
+  position: relative;
 }
 
 .uno-card.dealt {
@@ -35,6 +227,12 @@
 .card-face {
   backface-visibility: hidden;
   position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
 }
 
 .card-back {
@@ -42,16 +240,12 @@
 }
 
 @keyframes dealCard {
-  0% { transform: translateY(-200px) scale(0.2); opacity: 0; }
-  100% { transform: translateY(0) scale(1); opacity: 1; }
-}
-
-/* Spectator pill */
-.badge-spectator {
-  background: #a855f7;
-  color: #fff;
-  font-size: 0.75rem;
-  padding: 0.2rem 0.6rem;
-  border-radius: 10px;
-  font-weight: 700;
+  0% { 
+    transform: translateY(-300px) scale(0.1) rotate(-180deg); 
+    opacity: 0; 
+  }
+  100% { 
+    transform: translateY(0) scale(1) rotate(0deg); 
+    opacity: 1; 
+  }
 }
