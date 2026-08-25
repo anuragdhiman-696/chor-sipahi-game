@@ -46,6 +46,13 @@ jobs:
       - name: Setup Android SDK Tools
         uses: android-actions/setup-android@v3
 
+      - name: Install Gradle 7.6 (Overrides System Gradle 9.x)
+        run: |
+          wget -q https://services.gradle.org/distributions/gradle-7.6-bin.zip
+          unzip -q gradle-7.6-bin.zip
+          sudo mv gradle-7.6 /opt/gradle-7.6
+          echo "/opt/gradle-7.6/bin" >> $GITHUB_PATH
+
       - name: Install Cordova CLI
         run: npm install -g cordova@12.0.0
 
@@ -53,14 +60,9 @@ jobs:
         run: |
           cordova platform add android@12.0.0 --no-telemetry
 
-      - name: Force Local Gradle Wrapper Usage
-        run: |
-          chmod +x platforms/android/gradlew || true
-          echo "CORDOVA_ANDROID_GRADLE_DISTRIBUTION_URL=https\://services.gradle.org/distributions/gradle-7.6-bin.zip" >> $GITHUB_ENV
-
       - name: Build Debug APK
         run: |
-          cordova build android --debug --no-telemetry -- --gradleBuilder=gradlew
+          cordova build android --debug --no-telemetry
 
       - name: Verify APK Generation
         run: |
