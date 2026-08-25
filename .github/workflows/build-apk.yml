@@ -46,40 +46,68 @@ jobs:
           rm -rf www/*
           cp -r ../client/dist/* www/
 
-          echo "Copying app icon..."
+          echo "Copying icon..."
           if [ -f "../client/public/icon.png" ]; then
             cp ../client/public/icon.png icon.png
           fi
 
-          echo "Configuring Cordova..."
+          echo "Configuring microphone permissions..."
 
           node <<'EOF'
           const fs = require("fs");
 
           let xml = fs.readFileSync("config.xml", "utf8");
 
-          const preferences = `
-              <preference name="MediaPlaybackRequiresUserAction" value="false" />
-              <preference name="AllowInlineMediaPlayback" value="true" />
+          const androidConfig = `
+              <platform name="android">
+                  <config-file target="AndroidManifest.xml" parent="/manifest">
+                      <uses-permission android:name="android.permission.RECORD_AUDIO" />
+                      <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+                  </config-file>
+              </platform>
           `;
 
-          xml = xml.replace("</widget>", preferences + "\n</widget>");
+          /*
+           * Cordova's config.xml parser needs the android namespace
+           * available for android:name attributes.
+           */
+          xml = xml.replace(
+              "</widget>",
+              androidConfig + "\n</widget>"
+          );
+
+          xml = xml.replace(
+              "<widget",
+              '<widget xmlns:android="http://schemas.android.com/apk/res/android"'
+          );
+
+          xml = xml.replace(
+              "</widget>",
+              `
+              <preference name="MediaPlaybackRequiresUserAction" value="false" />
+              <preference name="AllowInlineMediaPlayback" value="true" />
+              </widget>
+              `
+          );
 
           if (fs.existsSync("icon.png")) {
-            xml = xml.replace(
-              "</widget>",
-              '    <icon src="icon.png" />\n</widget>'
-            );
+              xml = xml.replace(
+                  "</widget>",
+                  '    <icon src="icon.png" />\n</widget>'
+              );
           }
 
           fs.writeFileSync("config.xml", xml);
           EOF
 
-          echo "Adding Android platform..."
-          cordova platform add android
+          echo "Installing Cordova Android 15.1.0..."
+          cordova platform add android@15.1.0
 
-          echo "Adding media capture plugin..."
+          echo "Installing media capture plugin..."
           cordova plugin add cordova-plugin-media-capture
+
+          echo "Checking installed Android version..."
+          cordova platform ls
 
           echo "Building APK..."
           cordova build android --debug
@@ -89,7 +117,7 @@ jobs:
             platforms/android/app/build/outputs/apk/debug/app-debug.apk \
             platforms/android/app/build/outputs/apk/debug/Chor-Sipahi.apk
 
-          echo "APK successfully created!"
+          echo "APK successfully built!"
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
@@ -107,5 +135,6 @@ jobs:
 
             Build #${{ github.run_number }}
 
-            React client packaged using Apache Cordova.
+            Cordova Android 15.1.0
+            Microphone permissions enabled
           files: app/platforms/android/app/build/outputs/apk/debug/Chor-Sipahi.apk
