@@ -2,7 +2,7 @@ name: Build Android APK
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: ["main", "master"]
   workflow_dispatch:
 
 permissions:
@@ -19,65 +19,76 @@ jobs:
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: '17'
+          distribution: temurin
+          java-version: "17"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
 
       - name: Build React Client
+        working-directory: client
         run: |
-          cd client
           npm install
           npm run build
 
       - name: Setup Cordova & Build APK
         run: |
           npm install -g cordova
+
           cordova create app com.anurag.chorsipahi "Chor Sipahi"
+
           cd app
+
           rm -rf www/*
           cp -r ../client/dist/* www/
 
-          # Configure config.xml via Node to avoid XML corruption
-          node -e '
-            const fs = require("fs");
-            let xml = fs.readFileSync("config.xml", "utf8");
-            
-            const androidBlock = `
-    <preference name="MediaPlaybackRequiresUserAction" value="false" />
-    <preference name="AllowInlineMediaPlayback" value="true" />
-    <platform name="android">
-        <edit-config file="app/src/main/AndroidManifest.xml" mode="merge" target="/manifest">
-            <manifest xmlns:android="http://schemas.android.com/apk/res/android" />
-        </edit-config>
-        <config-file target="AndroidManifest.xml" parent="/manifest">
-            <uses-permission android:name="android.permission.RECORD_AUDIO" />
-            <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
-            <uses-permission android:name="android.permission.AUDIO_CAPTURE" />
-        </config-file>
-    </platform>
-            `;
-            
-            xml = xml.replace("</widget>", androidBlock + "\n</widget>");
-            
-            if (fs.existsSync("../client/public/icon.png")) {
-              fs.copyFileSync("../client/public/icon.png", "icon.png");
-              xml = xml.replace("</widget>", "    <icon src=\"icon.png\" />\n</widget>");
-            }
-            
-            fs.writeFileSync("config.xml", xml);
-          '
+          # Copy app icon if available
+          if [ -f "../client/public/icon.png" ]; then
+            cp ../client/public/icon.png icon.png
+          fi
 
-          # Add Platform and Build
+          # Configure Cordova
+          node <<'EOF'
+          const fs = require("fs");
+
+          let xml = fs.readFileSync("config.xml", "utf8");
+
+          xml = xml.replace(
+            "</widget>",
+            `
+              <preference name="MediaPlaybackRequiresUserAction" value="false" />
+              <preference name="AllowInlineMediaPlayback" value="true" />
+
+              <platform name="android">
+                <config-file target="AndroidManifest.xml" parent="/manifest">
+                  <uses-permission android:name="android.permission.RECORD_AUDIO" />
+                  <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+                </config-file>
+              </platform>
+            </widget>
+            `
+          );
+
+          if (fs.existsSync("icon.png")) {
+            xml = xml.replace(
+              "</widget>",
+              '  <icon src="icon.png" />\n</widget>'
+            );
+          }
+
+          fs.writeFileSync("config.xml", xml);
+          EOF
+
           cordova platform add android
           cordova plugin add cordova-plugin-media-capture
+
           cordova build android --debug
 
-          # Rename output APK
-          mv platforms/android/app/build/outputs/apk/debug/app-debug.apk platforms/android/app/build/outputs/apk/debug/Chor-Sipahi.apk
+          mv \
+            platforms/android/app/build/outputs/apk/debug/app-debug.apk \
+            platforms/android/app/build/outputs/apk/debug/Chor-Sipahi.apk
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
@@ -92,7 +103,8 @@ jobs:
           name: Chor Sipahi Game (Build #${{ github.run_number }})
           body: |
             🎮 **Chor Sipahi Game - Android Release**
-            
-            - Fixed Gradle XML manifest injection
-            - Enabled Android WebView audio permissions
+
+            - React client built successfully
+            - Cordova Android APK generated
+            - Microphone permissions configured
           files: app/platforms/android/app/build/outputs/apk/debug/Chor-Sipahi.apk
