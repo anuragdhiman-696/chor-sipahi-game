@@ -35,6 +35,7 @@ jobs:
 
       - name: Prepare Cordova Web Assets
         run: |
+          rm -rf www
           mkdir -p www
           cp -r client/dist/. www/
 
@@ -43,33 +44,32 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
 
-      - name: Setup Android SDK Tools
+      - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Missing Android Build Tools (33.0.2)
+      - name: Install Android SDK 35
         run: |
-          yes | sdkmanager "platforms;android-33" "build-tools;33.0.2" "platform-tools"
+          sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
           yes | sdkmanager --licenses || true
 
-      - name: Install Gradle 7.6 (Overrides System Gradle 9.x)
-        run: |
-          wget -q https://services.gradle.org/distributions/gradle-7.6-bin.zip
-          unzip -q gradle-7.6-bin.zip
-          sudo mv gradle-7.6 /opt/gradle-7.6
-          echo "/opt/gradle-7.6/bin" >> $GITHUB_PATH
-
       - name: Install Cordova CLI
-        run: npm install -g cordova@12.0.0
+        run: npm install -g cordova@13.0.0
 
       - name: Add Cordova Android Platform
         run: |
           cordova platform remove android --no-telemetry || true
-          cordova platform add android@12.0.0 --no-telemetry
+          cordova platform add android@14.0.1 --no-telemetry
 
       - name: Build Debug APK
         run: |
           cordova build android --debug --no-telemetry
+
+      - name: Find APK
+        run: |
+          echo "Generated APK files:"
+          find platforms/android -type f -name "*.apk" -print
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
@@ -80,13 +80,10 @@ jobs:
           retention-days: 14
 
       - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: release-${{ github.run_number }}
-          name: Release v1.0.${{ github.run_number }}
-          body: "Automated build release for Chor-Sipahi Android App."
-          draft: false
-          prerelease: false
           files: platforms/android/app/build/outputs/apk/debug/*.apk
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
