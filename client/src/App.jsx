@@ -5,14 +5,14 @@ import './App.css';
 
 // Always use production backend URL when running inside mobile APK (where hostname is empty or localhost)
 const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-const SOCKET_SERVER_URL = isLocal ? 'http://localhost:5000' : 'https://chor-sipahi-game.onrender.com';
+const SOCKET_SERVER_URL = 'https://chor-sipahi-game.onrender.com';
 
 const socket = io(SOCKET_SERVER_URL, { 
   autoConnect: true,
   reconnection: true,
   reconnectionAttempts: 50,
   reconnectionDelay: 1000,
-  transports: ['polling', 'websocket'] // Force polling fallback first for strict Android WebViews
+  transports: ['polling', 'websocket']
 });
 
 const PEER_CONFIG = {
@@ -47,6 +47,13 @@ export default function App() {
   const peerCallsRef = useRef({});
   const audioElementsRef = useRef({});
   const audioAnalyserRef = useRef(null);
+
+  // Wake up Render instance on mount
+  useEffect(() => {
+    fetch('https://chor-sipahi-game.onrender.com')
+      .then(() => console.log('Server awakened successfully!'))
+      .catch((err) => console.error('Server ping failed:', err));
+  }, []);
 
   useEffect(() => {
     const onConnect = () => {
