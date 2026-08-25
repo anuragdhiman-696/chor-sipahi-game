@@ -121,7 +121,7 @@ function App() {
         socket.emit('join-voice', { roomId: currentRoom.roomId, peerId });
       }
     } catch (err) {
-      alert("Microphone permission blocked. Please check site permissions.");
+      alert("Microphone permission blocked.");
     }
   };
 
@@ -155,6 +155,14 @@ function App() {
     });
   };
 
+  const handleNextRound = () => {
+    socket.emit('next-round', { roomId: currentRoom.roomId });
+  };
+
+  const handleNextSession = () => {
+    socket.emit('next-session', { roomId: currentRoom.roomId });
+  };
+
   const handleCatchChor = (suspectId) => {
     socket.emit('make-guess', { roomId: currentRoom.roomId, suspectId });
   };
@@ -169,6 +177,9 @@ function App() {
 
   const isHost = currentRoom?.host === socket.id;
   const otherPlayers = currentRoom?.players.filter((p) => p.id !== socket.id) || [];
+  const latestWinner = currentRoom?.sessionWinners?.length > 0 
+    ? currentRoom.sessionWinners[currentRoom.sessionWinners.length - 1] 
+    : null;
 
   return (
     <div>
@@ -199,28 +210,11 @@ function App() {
           <div className="glass-card" style={{ maxWidth: '450px', margin: '2rem auto' }}>
             <h2>Enter Arena</h2>
             {error && <div style={{ color: '#f87171', margin: '0.5rem 0' }}>{error}</div>}
-            <input 
-              type="text" 
-              placeholder="Your Name" 
-              value={name} 
-              onChange={(e) => setName(e.target.value)} 
-              className="input-field" 
-              style={{ marginBottom: '1rem' }} 
-            />
-            <button onClick={handleCreateRoom} className="btn btn-primary" style={{ marginBottom: '1rem' }}>
-              ✨ Create Room
-            </button>
+            <input type="text" placeholder="Your Name" value={name} onChange={(e) => setName(e.target.value)} className="input-field" style={{ marginBottom: '1rem' }} />
+            <button onClick={handleCreateRoom} className="btn btn-primary" style={{ marginBottom: '1rem' }}>✨ Create Room</button>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <input 
-                type="text" 
-                placeholder="Room Code" 
-                value={joinRoomId} 
-                onChange={(e) => setJoinRoomId(e.target.value.toUpperCase())} 
-                className="input-field" 
-              />
-              <button onClick={handleJoinRoom} className="btn btn-secondary" style={{ width: 'auto' }}>
-                Join
-              </button>
+              <input type="text" placeholder="Room Code" value={joinRoomId} onChange={(e) => setJoinRoomId(e.target.value.toUpperCase())} className="input-field" />
+              <button onClick={handleJoinRoom} className="btn btn-secondary" style={{ width: 'auto' }}>Join</button>
             </div>
           </div>
         )}
@@ -228,10 +222,29 @@ function App() {
         {currentRoom && (
           <div className="grid-workspace">
             <div>
+              {/* PREVIOUS SESSION WINNER BANNER */}
+              {latestWinner && (
+                <div className="glass-card" style={{ marginBottom: '1rem', borderColor: '#ecc94b', background: 'rgba(236, 201, 75, 0.1)', textAlign: 'center' }}>
+                  <span style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#ecc94b' }}>
+                    🏆 Session {latestWinner.session} Champion: {latestWinner.winnerName} ({latestWinner.score} Pts)
+                  </span>
+                </div>
+              )}
+
               <div className="glass-card" style={{ marginBottom: '1rem' }}>
-                <h3>Room Code: <span style={{ color: '#38bdf8' }}>{currentRoom.roomId}</span></h3>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <h3>Room: <span style={{ color: '#38bdf8' }}>{currentRoom.roomId}</span></h3>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <span style={{ background: '#0f172a', padding: '0.3rem 0.6rem', borderRadius: '8px', fontWeight: 'bold', fontSize: '0.85rem', color: '#38bdf8' }}>
+                      Session {currentRoom.currentSession || 1}
+                    </span>
+                    <span style={{ background: '#1e293b', padding: '0.3rem 0.6rem', borderRadius: '8px', fontWeight: 'bold', fontSize: '0.85rem', border: '1px solid #334155' }}>
+                      Round {currentRoom.currentRound || 1} / {currentRoom.maxRounds || 20}
+                    </span>
+                  </div>
+                </div>
                 
-                <h4 style={{ marginTop: '1rem' }}>🏆 Scoreboard</h4>
+                <h4 style={{ marginTop: '1rem' }}>🏆 Current Session Scores</h4>
                 <div style={{ marginTop: '0.5rem' }}>
                   {currentRoom.players.map((p) => (
                     <div key={p.id} className="player-card">
@@ -243,7 +256,7 @@ function App() {
 
                 {isHost && !gameStarted && (
                   <button onClick={() => socket.emit('start-game', { roomId: currentRoom.roomId })} className="btn btn-primary" style={{ marginTop: '1rem' }}>
-                    🚀 Deal Cards & Start Game
+                    🚀 Start Game
                   </button>
                 )}
               </div>
@@ -286,6 +299,31 @@ function App() {
                         {gameResult.success ? '🎉 Wazir Caught the Thief!' : '❌ Thief Escaped!'}
                       </h3>
                       <p style={{ margin: '0.5rem 0' }}>{gameResult.message}</p>
+                      
+                      {gameResult.isSessionEnd ? (
+                        <div style={{ marginTop: '1rem' }}>
+                          <h4 style={{ color: '#ecc94b' }}>🎉 Session {currentRoom.currentSession} Finished!</h4>
+                          {isHost ? (
+                            <button onClick={handleNextSession} className="btn btn-primary" style={{ marginTop: '0.8rem' }}>
+                              🏆 Start Session {currentRoom.currentSession + 1}
+                            </button>
+                          ) : (
+                            <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: '0.5rem' }}>
+                              Waiting for host to start Session {currentRoom.currentSession + 1}...
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        isHost ? (
+                          <button onClick={handleNextRound} className="btn btn-primary" style={{ marginTop: '1rem' }}>
+                            ⏩ Next Round
+                          </button>
+                        ) : (
+                          <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: '0.8rem' }}>
+                            Waiting for host to start next round...
+                          </p>
+                        )
+                      )}
                     </div>
                   )}
                 </div>
@@ -303,13 +341,7 @@ function App() {
                 <div ref={chatEndRef} />
               </div>
               <form onSubmit={handleSendMessage} className="chat-form">
-                <input 
-                  type="text" 
-                  placeholder="Type..." 
-                  value={chatInput} 
-                  onChange={(e) => setChatInput(e.target.value)} 
-                  className="input-field" 
-                />
+                <input type="text" placeholder="Type..." value={chatInput} onChange={(e) => setChatInput(e.target.value)} className="input-field" />
                 <button type="submit" className="btn btn-primary" style={{ width: 'auto' }}>Send</button>
               </form>
             </div>

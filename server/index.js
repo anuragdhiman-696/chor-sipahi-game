@@ -13,6 +13,7 @@ const io = new Server(httpServer, {
 
 const rooms = new Map();
 const ROLES = ['Raja', 'Wazir', 'Sipahi', 'Chor'];
+const MAX_ROUNDS_PER_SESSION = 20;
 
 const generateRoomId = () => Math.random().toString(36).substring(2, 8).toUpperCase();
 
@@ -40,6 +41,9 @@ io.on('connection', (socket) => {
       spectators: [],
       gameStarted: false,
       currentRound: 1,
+      currentSession: 1,
+      maxRounds: MAX_ROUNDS_PER_SESSION,
+      sessionWinners: [], // Stores { session: N, winnerName: "", score: X }
       messages: []
     };
 
@@ -48,7 +52,7 @@ io.on('connection', (socket) => {
     callback({ success: true, room: newRoom });
   });
 
-  // JOIN ROOM (Case-insensitive matching)
+  // JOIN ROOM
   socket.on('join-room', ({ roomId, name, peerId }, callback) => {
     if (!name?.trim()) return callback({ error: 'Name is required' });
     if (!roomId) return callback({ error: 'Room code required' });
@@ -56,7 +60,7 @@ io.on('connection', (socket) => {
     const cleanRoomId = roomId.trim().toUpperCase();
     const room = rooms.get(cleanRoomId);
 
-    if (!room) return callback({ error: 'Room not found. Verify room code or host connection.' });
+    if (!room) return callback({ error: 'Room not found.' });
 
     const isSpectator = room.players.length >= 4 || room.gameStarted;
     const newParticipant = { id: socket.id, peerId, name: name.trim(), score: 0, role: null, isReady: false, isSpectator };
@@ -72,12 +76,8 @@ io.on('connection', (socket) => {
     callback({ success: true, room });
   });
 
-  // START GAME
-  socket.on('start-game', ({ roomId }) => {
-    const cleanRoomId = roomId?.trim().toUpperCase();
-    const room = rooms.get(cleanRoomId);
-    if (!room || room.players.length !== 4) return;
-
+  // CARD DEALER HELPER
+  const dealCards = (room, cleanRoomId) => {
     room.gameStarted = true;
     const shuffledRoles = shuffleArray(ROLES);
 
@@ -97,6 +97,44 @@ io.on('connection', (socket) => {
     const raja = room.players.find(p => p.role === 'Raja');
     const wazir = room.players.find(p => p.role === 'Wazir');
     io.to(cleanRoomId).emit('reveal-raja', { rajaId: raja.id, rajaName: raja.name, wazirId: wazir.id });
+  };
+
+  // START FIRST GAME
+  socket.on('start-game', ({ roomId }) => {
+    const cleanRoomId = roomId?.trim().toUpperCase();
+    const room = rooms.get(cleanRoomId);
+    if (!room || room.players.length !== 4) return;
+    
+    room.currentRound = 1;
+    dealCards(room, cleanRoomId);
+  });
+
+  // NEXT ROUND
+  socket.on('next-round', ({ roomId }) => {
+    const cleanRoomId = roomId?.trim().toUpperCase();
+    const room = rooms.get(cleanRoomId);
+    if (!room || room.host !== socket.id) return;
+
+    if (room.currentRound < MAX_ROUNDS_PER_SESSION) {
+      room.currentRound += 1;
+      dealCards(room, cleanRoomId);
+    }
+  });
+
+  // START NEXT SESSION
+  socket.on('next-session', ({ roomId }) => {
+    const cleanRoomId = roomId?.trim().toUpperCase();
+    const room = rooms.get(cleanRoomId);
+    if (!room || room.host !== socket.id) return;
+
+    // Increment Session Counter and Reset Rounds & Scores
+    room.currentSession += 1;
+    room.currentRound = 1;
+    room.gameStarted = false;
+    room.players.forEach(p => p.score = 0);
+
+    io.to(cleanRoomId).emit('room-updated', { room });
+    dealCards(room, cleanRoomId);
   });
 
   // WAZIR GUESSING
@@ -128,10 +166,24 @@ io.on('connection', (socket) => {
 
     room.gameStarted = false;
 
+    // Check if session ended (Round 20 completed)
+    let isSessionEnd = room.currentRound >= MAX_ROUNDS_PER_SESSION;
+    if (isSessionEnd) {
+      // Find highest scoring player for this session
+      const sortedPlayers = [...room.players].sort((a, b) => b.score - a.score);
+      const sessionWinner = sortedPlayers[0];
+      room.sessionWinners.push({
+        session: room.currentSession,
+        winnerName: sessionWinner.name,
+        score: sessionWinner.score
+      });
+    }
+
     io.to(cleanRoomId).emit('room-updated', { room });
     io.to(cleanRoomId).emit('game-over', {
       success: isCorrect,
       scores: roundScores,
+      isSessionEnd,
       message: isCorrect 
         ? `🎉 ${wazir.name} (Wazir) correctly identified ${chor.name} as the Chor!` 
         : `❌ ${wazir.name} (Wazir) guessed wrong! ${chor.name} was the Thief!`
