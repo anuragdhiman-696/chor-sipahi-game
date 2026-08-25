@@ -48,13 +48,15 @@ io.on('connection', (socket) => {
     callback({ success: true, room: newRoom });
   });
 
-  // JOIN ROOM
+  // JOIN ROOM (Case-insensitive matching)
   socket.on('join-room', ({ roomId, name, peerId }, callback) => {
-    const cleanRoomId = roomId?.trim().toUpperCase();
+    if (!name?.trim()) return callback({ error: 'Name is required' });
+    if (!roomId) return callback({ error: 'Room code required' });
+
+    const cleanRoomId = roomId.trim().toUpperCase();
     const room = rooms.get(cleanRoomId);
 
-    if (!name?.trim()) return callback({ error: 'Name is required' });
-    if (!room) return callback({ error: 'Room not found' });
+    if (!room) return callback({ error: 'Room not found. Verify room code or host connection.' });
 
     const isSpectator = room.players.length >= 4 || room.gameStarted;
     const newParticipant = { id: socket.id, peerId, name: name.trim(), score: 0, role: null, isReady: false, isSpectator };
@@ -70,20 +72,10 @@ io.on('connection', (socket) => {
     callback({ success: true, room });
   });
 
-  // TOGGLE READY
-  socket.on('toggle-ready', ({ roomId }) => {
-    const room = rooms.get(roomId);
-    if (!room) return;
-    const player = room.players.find(p => p.id === socket.id);
-    if (player) {
-      player.isReady = !player.isReady;
-      io.to(roomId).emit('room-updated', { room });
-    }
-  });
-
-  // START GAME & DEAL CARDS
+  // START GAME
   socket.on('start-game', ({ roomId }) => {
-    const room = rooms.get(roomId);
+    const cleanRoomId = roomId?.trim().toUpperCase();
+    const room = rooms.get(cleanRoomId);
     if (!room || room.players.length !== 4) return;
 
     room.gameStarted = true;
@@ -93,9 +85,8 @@ io.on('connection', (socket) => {
       p.role = shuffledRoles[idx]; 
     });
 
-    io.to(roomId).emit('game-started', { room });
+    io.to(cleanRoomId).emit('game-started', { room });
 
-    // Send private roles to each individual client
     room.players.forEach((p) => {
       io.to(p.id).emit('assign-roles', { 
         myRole: p.role,
@@ -105,78 +96,73 @@ io.on('connection', (socket) => {
 
     const raja = room.players.find(p => p.role === 'Raja');
     const wazir = room.players.find(p => p.role === 'Wazir');
-    io.to(roomId).emit('reveal-raja', { rajaId: raja.id, rajaName: raja.name, wazirId: wazir.id });
+    io.to(cleanRoomId).emit('reveal-raja', { rajaId: raja.id, rajaName: raja.name, wazirId: wazir.id });
   });
 
-  // WAZIR GUESSING & SCORE CALCULATION
+  // WAZIR GUESSING
   socket.on('make-guess', ({ roomId, suspectId }) => {
-    const room = rooms.get(roomId);
+    const cleanRoomId = roomId?.trim().toUpperCase();
+    const room = rooms.get(cleanRoomId);
     if (!room || !room.gameStarted) return;
 
     const wazir = room.players.find(p => p.role === 'Wazir');
     const chor = room.players.find(p => p.role === 'Chor');
 
-    // Only Wazir can make a guess
     if (socket.id !== wazir?.id) return;
 
     const isCorrect = chor.id === suspectId;
     const roundScores = {};
 
-    // Calculate score updates based on original game rules
     room.players.forEach(p => {
       if (!p.score) p.score = 0;
 
       let addedPts = 0;
-      if (p.role === 'Raja') {
-        addedPts = 1000;
-      } else if (p.role === 'Sipahi') {
-        addedPts = 500;
-      } else if (p.role === 'Wazir') {
-        addedPts = isCorrect ? 800 : 0;
-      } else if (p.role === 'Chor') {
-        addedPts = isCorrect ? 0 : 800;
-      }
+      if (p.role === 'Raja') addedPts = 1000;
+      else if (p.role === 'Sipahi') addedPts = 500;
+      else if (p.role === 'Wazir') addedPts = isCorrect ? 800 : 0;
+      else if (p.role === 'Chor') addedPts = isCorrect ? 0 : 800;
 
       p.score += addedPts;
       roundScores[p.name] = addedPts;
     });
 
-    // Reset round state for potential next round
     room.gameStarted = false;
 
-    // Broadcast updated score matrix & outcome
-    io.to(roomId).emit('room-updated', { room });
-    io.to(roomId).emit('game-over', {
+    io.to(cleanRoomId).emit('room-updated', { room });
+    io.to(cleanRoomId).emit('game-over', {
       success: isCorrect,
       scores: roundScores,
       message: isCorrect 
         ? `🎉 ${wazir.name} (Wazir) correctly identified ${chor.name} as the Chor!` 
-        : `❌ ${wazir.name} (Wazir) guessed wrong! ${chor.name} was the Thief and steals the points!`
+        : `❌ ${wazir.name} (Wazir) guessed wrong! ${chor.name} was the Thief!`
     });
   });
 
   // VOICE SIGNALING
   socket.on('join-voice', ({ roomId, peerId }) => {
-    socket.to(roomId).emit('user-connected-voice', { peerId, socketId: socket.id });
+    const cleanRoomId = roomId?.trim().toUpperCase();
+    socket.to(cleanRoomId).emit('user-connected-voice', { peerId, socketId: socket.id });
   });
 
   // CHAT
   socket.on('send-message', ({ roomId, messageText }) => {
-    const room = rooms.get(roomId);
+    const cleanRoomId = roomId?.trim().toUpperCase();
+    const room = rooms.get(cleanRoomId);
     if (!room) return;
+
     const sender = [...room.players, ...room.spectators].find(p => p.id === socket.id);
     const msg = {
       id: Date.now(),
-      sender: sender ? sender.name : 'Unknown',
+      sender: sender ? sender.name : 'Player',
       senderId: socket.id,
       text: messageText,
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
     room.messages.push(msg);
-    io.to(roomId).emit('new-message', msg);
+    io.to(cleanRoomId).emit('new-message', msg);
   });
 
-  // DISCONNECT HANDLER
+  // DISCONNECT
   socket.on('disconnect', () => {
     for (const [roomId, room] of rooms.entries()) {
       let index = room.players.findIndex(p => p.id === socket.id);

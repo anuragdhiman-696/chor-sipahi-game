@@ -51,7 +51,7 @@ function App() {
       document.body.appendChild(audio);
     }
     audio.srcObject = stream;
-    audio.play().catch((err) => console.log('Audio playback waiting:', err));
+    audio.play().catch(console.error);
   };
 
   useEffect(() => {
@@ -69,7 +69,11 @@ function App() {
 
     socket.on('connect', () => setIsConnected(true));
     socket.on('disconnect', () => setIsConnected(false));
-    socket.on('room-updated', ({ room }) => setCurrentRoom(room));
+    
+    socket.on('room-updated', ({ room }) => {
+      setCurrentRoom(room);
+      if (room.messages) setMessages(room.messages);
+    });
 
     socket.on('game-started', ({ room }) => {
       setCurrentRoom(room);
@@ -90,16 +94,23 @@ function App() {
       }
     });
 
-    socket.on('game-over', (result) => {
-      setGameResult(result);
-    });
-
+    socket.on('game-over', (result) => setGameResult(result));
     socket.on('new-message', (msg) => setMessages((prev) => [...prev, msg]));
 
     return () => socket.off();
   }, [peerId]);
 
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
   const enableMicrophone = async () => {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (AudioContext) {
+      const ctx = new AudioContext();
+      if (ctx.state === 'suspended') await ctx.resume();
+    }
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       localStream.current = stream;
@@ -110,7 +121,7 @@ function App() {
         socket.emit('join-voice', { roomId: currentRoom.roomId, peerId });
       }
     } catch (err) {
-      alert("Microphone permission denied.");
+      alert("Microphone permission blocked. Please check site permissions.");
     }
   };
 
@@ -127,6 +138,7 @@ function App() {
   };
 
   const handleCreateRoom = () => {
+    setError('');
     if (!name.trim()) return setError('Please enter your name');
     socket.emit('create-room', { name, peerId }, (res) => {
       if (res.error) setError(res.error);
@@ -135,8 +147,9 @@ function App() {
   };
 
   const handleJoinRoom = () => {
-    if (!name.trim() || !joinRoomId.trim()) return setError('Name and Room Code required');
-    socket.emit('join-room', { roomId: joinRoomId, name, peerId }, (res) => {
+    setError('');
+    if (!name.trim() || !joinRoomId.trim()) return setError('Enter name & room code');
+    socket.emit('join-room', { roomId: joinRoomId.trim().toUpperCase(), name, peerId }, (res) => {
       if (res.error) setError(res.error);
       else setCurrentRoom(res.room);
     });
@@ -170,7 +183,7 @@ function App() {
             <button 
               onClick={toggleMic} 
               className={`btn ${!hasMicPermission ? 'btn-primary' : isMuted ? 'btn-danger' : 'btn-success'}`} 
-              style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem' }}
+              style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem', width: 'auto' }}
             >
               {!hasMicPermission ? '🎙️ Enable Mic' : isMuted ? '🔇 Muted' : '🎙️ Voice Active'}
             </button>
@@ -186,11 +199,28 @@ function App() {
           <div className="glass-card" style={{ maxWidth: '450px', margin: '2rem auto' }}>
             <h2>Enter Arena</h2>
             {error && <div style={{ color: '#f87171', margin: '0.5rem 0' }}>{error}</div>}
-            <input type="text" placeholder="Your Name" value={name} onChange={(e) => setName(e.target.value)} className="input-field" style={{ marginBottom: '1rem' }} />
-            <button onClick={handleCreateRoom} className="btn btn-primary" style={{ marginBottom: '1rem' }}>✨ Create Room</button>
+            <input 
+              type="text" 
+              placeholder="Your Name" 
+              value={name} 
+              onChange={(e) => setName(e.target.value)} 
+              className="input-field" 
+              style={{ marginBottom: '1rem' }} 
+            />
+            <button onClick={handleCreateRoom} className="btn btn-primary" style={{ marginBottom: '1rem' }}>
+              ✨ Create Room
+            </button>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <input type="text" placeholder="Room Code" value={joinRoomId} onChange={(e) => setJoinRoomId(e.target.value)} className="input-field" />
-              <button onClick={handleJoinRoom} className="btn btn-secondary">Join</button>
+              <input 
+                type="text" 
+                placeholder="Room Code" 
+                value={joinRoomId} 
+                onChange={(e) => setJoinRoomId(e.target.value.toUpperCase())} 
+                className="input-field" 
+              />
+              <button onClick={handleJoinRoom} className="btn btn-secondary" style={{ width: 'auto' }}>
+                Join
+              </button>
             </div>
           </div>
         )}
@@ -198,7 +228,6 @@ function App() {
         {currentRoom && (
           <div className="grid-workspace">
             <div>
-              {/* LEADERBOARD & POINTS TABLE */}
               <div className="glass-card" style={{ marginBottom: '1rem' }}>
                 <h3>Room Code: <span style={{ color: '#38bdf8' }}>{currentRoom.roomId}</span></h3>
                 
@@ -219,7 +248,6 @@ function App() {
                 )}
               </div>
 
-              {/* CARD ARENA */}
               {gameStarted && (
                 <div className="card-arena-container">
                   <div className={`uno-card ${cardFlipped ? 'flipped' : ''}`} onClick={() => setCardFlipped(!cardFlipped)}>
@@ -232,9 +260,6 @@ function App() {
                       <div style={{ fontWeight: '800', fontSize: '1.2rem', color: ROLE_CONFIG[myRole]?.color || '#ffffff' }}>
                         {myRole || 'Assigning...'}
                       </div>
-                      <div style={{ fontSize: '0.8rem', opacity: 0.8 }}>
-                        {ROLE_CONFIG[myRole]?.points ? `${ROLE_CONFIG[myRole].points} Pts` : ''}
-                      </div>
                     </div>
                   </div>
 
@@ -242,7 +267,6 @@ function App() {
                     {cardFlipped ? '🙈 Hide Role' : '👁️ Reveal Role'}
                   </button>
 
-                  {/* WAZIR GUESSING PANEL */}
                   {myRole === 'Wazir' && !gameResult && (
                     <div className="glass-card" style={{ marginTop: '1.5rem', width: '100%' }}>
                       <h4 style={{ color: '#38bdf8', marginBottom: '0.5rem' }}>🛡️ Wazir: Catch the Thief (Chor)</h4>
@@ -256,32 +280,18 @@ function App() {
                     </div>
                   )}
 
-                  {/* ROUND RESULT & REVEAL TABLE */}
                   {gameResult && (
                     <div className="glass-card" style={{ marginTop: '1.5rem', width: '100%', textAlign: 'center' }}>
                       <h3 style={{ color: gameResult.success ? '#4ade80' : '#f87171' }}>
                         {gameResult.success ? '🎉 Wazir Caught the Thief!' : '❌ Thief Escaped!'}
                       </h3>
                       <p style={{ margin: '0.5rem 0' }}>{gameResult.message}</p>
-                      
-                      {gameResult.scores && (
-                        <div style={{ marginTop: '1rem', textAlign: 'left' }}>
-                          <h4>Round Points:</h4>
-                          {Object.entries(gameResult.scores).map(([pName, pts]) => (
-                            <div key={pName} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.2rem 0' }}>
-                              <span>{pName}:</span>
-                              <strong>+{pts} pts</strong>
-                            </div>
-                          ))}
-                        </div>
-                      )}
                     </div>
                   )}
                 </div>
               )}
             </div>
 
-            {/* CHAT SECTION */}
             <div className="glass-card chat-card">
               <div className="chat-header">💬 IN-GAME CHAT</div>
               <div className="chat-messages">
@@ -293,7 +303,13 @@ function App() {
                 <div ref={chatEndRef} />
               </div>
               <form onSubmit={handleSendMessage} className="chat-form">
-                <input type="text" placeholder="Type..." value={chatInput} onChange={(e) => setChatInput(e.target.value)} className="input-field" />
+                <input 
+                  type="text" 
+                  placeholder="Type..." 
+                  value={chatInput} 
+                  onChange={(e) => setChatInput(e.target.value)} 
+                  className="input-field" 
+                />
                 <button type="submit" className="btn btn-primary" style={{ width: 'auto' }}>Send</button>
               </form>
             </div>
