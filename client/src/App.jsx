@@ -41,13 +41,24 @@ function App() {
   const [chatInput, setChatInput] = useState('');
   const chatEndRef = useRef(null);
 
+  // Helper to safely play remote streams
+  const handleRemoteStream = (remoteStream) => {
+    let audio = document.getElementById(`audio-${remoteStream.id}`);
+    if (!audio) {
+      audio = document.createElement('audio');
+      audio.id = `audio-${remoteStream.id}`;
+      document.body.appendChild(audio);
+    }
+    audio.srcObject = remoteStream;
+    audio.autoplay = true;
+    audio.play().catch((err) => console.log('Audio playback error:', err));
+  };
+
   useEffect(() => {
-    // 1. Initialize PeerJS instance without immediate mic capture
     const peer = new Peer();
     peer.on('open', (id) => setPeerId(id));
     peerInstance.current = peer;
 
-    // 2. Socket listeners
     socket.on('connect', () => setIsConnected(true));
     socket.on('disconnect', () => setIsConnected(false));
     socket.on('room-updated', ({ room }) => setCurrentRoom(room));
@@ -55,8 +66,9 @@ function App() {
     socket.on('game-started', ({ room }) => {
       setCurrentRoom(room);
       setGameStarted(true);
+      setCardFlipped(false);
       setIsDealt(false);
-      setTimeout(() => setIsDealt(true), 100);
+      setTimeout(() => setIsDealt(true), 150);
     });
 
     socket.on('assign-roles', ({ myRole }) => {
@@ -67,11 +79,7 @@ function App() {
     socket.on('user-connected-voice', ({ peerId: remotePeerId }) => {
       if (localStream.current && remotePeerId) {
         const call = peerInstance.current.call(remotePeerId, localStream.current);
-        call?.on('stream', (remoteStream) => {
-          const audio = new Audio();
-          audio.srcObject = remoteStream;
-          audio.play();
-        });
+        call?.on('stream', (remoteStream) => handleRemoteStream(remoteStream));
       }
     });
 
@@ -80,7 +88,6 @@ function App() {
     return () => socket.off();
   }, []);
 
-  // Native Cordova / Web view permission request handler
   const enableMicrophone = async () => {
     const requestAudioStream = async () => {
       try {
@@ -89,19 +96,14 @@ function App() {
         setHasMicPermission(true);
         setIsMuted(false);
 
-        // Answer incoming peer calls once mic stream is ready
         if (peerInstance.current) {
           peerInstance.current.on('call', (call) => {
             call.answer(stream);
-            call.on('stream', (remoteStream) => {
-              const audio = new Audio();
-              audio.srcObject = remoteStream;
-              audio.play();
-            });
+            call.on('stream', (remoteStream) => handleRemoteStream(remoteStream));
           });
         }
       } catch (err) {
-        alert("Microphone permission denied or not supported on this device.");
+        alert("Microphone access failed. Please enable permissions in App Settings.");
         console.error("Mic Error:", err);
       }
     };
@@ -155,7 +157,6 @@ function App() {
 
   return (
     <div>
-      {/* NAVBAR */}
       <nav className="navbar">
         <div className="brand">
           <span>👑</span>
@@ -179,7 +180,6 @@ function App() {
       </nav>
 
       <main className="main-container">
-        {/* ENTRY SCREEN */}
         {!currentRoom && (
           <div className="glass-card" style={{ maxWidth: '450px', margin: '2rem auto' }}>
             <h2>Enter Arena</h2>
@@ -193,7 +193,6 @@ function App() {
           </div>
         )}
 
-        {/* LOBBY & GAME */}
         {currentRoom && (
           <div className="grid-workspace">
             <div>
@@ -201,7 +200,6 @@ function App() {
                 <h3>Room Code: <span style={{ color: '#38bdf8' }}>{currentRoom.roomId}</span></h3>
                 {isSpectator && <span className="badge-spectator">👁️ You are Spectating</span>}
 
-                {/* ACTIVE PLAYERS */}
                 <h4>Players ({currentRoom.players.length}/4)</h4>
                 {currentRoom.players.map((p) => (
                   <div key={p.id} className="player-card">
@@ -210,7 +208,6 @@ function App() {
                   </div>
                 ))}
 
-                {/* SPECTATORS LIST */}
                 {currentRoom.spectators.length > 0 && (
                   <div style={{ marginTop: '1rem' }}>
                     <h4>Spectators ({currentRoom.spectators.length})</h4>
@@ -225,24 +222,29 @@ function App() {
                 )}
               </div>
 
-              {/* UNO CARD DEALING ANIMATION ARENA */}
+              {/* FLIP CARD AREA */}
               {gameStarted && (
                 <div className="card-arena">
-                  <div className={`uno-card ${isDealt ? 'dealt' : ''} ${cardFlipped ? 'flipped' : ''}`} onClick={() => setCardFlipped(!cardFlipped)}>
+                  <div 
+                    className={`uno-card ${isDealt ? 'dealt' : ''} ${cardFlipped ? 'flipped' : ''}`} 
+                    onClick={() => setCardFlipped((prev) => !prev)}
+                    style={{ cursor: 'pointer' }}
+                  >
                     <div className="card-face">
                       <div style={{ fontSize: '3rem' }}>🂠</div>
-                      <div style={{ fontSize: '0.75rem', marginTop: '0.5rem' }}>TAP TO FLIP</div>
+                      <div style={{ fontSize: '0.75rem', marginTop: '0.5rem' }}>TAP TO REVEAL</div>
                     </div>
                     <div className="card-face card-back">
-                      <div style={{ fontSize: '3rem' }}>{ROLE_CONFIG[myRole]?.emoji}</div>
-                      <div style={{ fontWeight: '800', color: ROLE_CONFIG[myRole]?.color }}>{myRole}</div>
+                      <div style={{ fontSize: '3rem' }}>{ROLE_CONFIG[myRole]?.emoji || '❓'}</div>
+                      <div style={{ fontWeight: '800', color: ROLE_CONFIG[myRole]?.color || '#ffffff' }}>
+                        {myRole || 'Assigning...'}
+                      </div>
                     </div>
                   </div>
                 </div>
               )}
             </div>
 
-            {/* CHAT */}
             <div className="glass-card chat-card">
               <div className="chat-header">💬 IN-GAME CHAT</div>
               <div className="chat-messages">
