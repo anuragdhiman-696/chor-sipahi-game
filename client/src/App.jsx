@@ -3,18 +3,16 @@ import io from 'socket.io-client';
 import Peer from 'peerjs';
 import './App.css';
 
-// Deployed Render backend URL with local fallback
-const SOCKET_SERVER_URL = window.location.hostname === 'localhost' 
-  ? 'http://localhost:5000' 
-  : 'https://chor-sipahi-game.onrender.com';
+// Always use production backend URL when running inside mobile APK (where hostname is empty or localhost)
+const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+const SOCKET_SERVER_URL = isLocal ? 'http://localhost:5000' : 'https://chor-sipahi-game.onrender.com';
 
-// Socket connection setup optimized for web and Android WebView (APK)
 const socket = io(SOCKET_SERVER_URL, { 
   autoConnect: true,
   reconnection: true,
-  reconnectionAttempts: 20,
+  reconnectionAttempts: 50,
   reconnectionDelay: 1000,
-  transports: ['websocket', 'polling'] // Guarantees fallback inside native Android webviews
+  transports: ['polling', 'websocket'] // Force polling fallback first for strict Android WebViews
 });
 
 const PEER_CONFIG = {
@@ -31,15 +29,12 @@ export default function App() {
   const [playerName, setPlayerName] = useState('');
   const [roomIdInput, setRoomIdInput] = useState('');
   const [currentRoom, setCurrentRoom] = useState(null);
-  const [gameState, setGameState] = useState('menu'); // 'menu', 'lobby', 'playing'
+  const [gameState, setGameState] = useState('menu');
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
-
-  // Socket Connection Status State
   const [isConnected, setIsConnected] = useState(socket.connected);
 
-  // Voice States
   const [voiceJoined, setVoiceJoined] = useState(false);
   const [selfMuted, setSelfMuted] = useState(false);
   const [hostMuted, setHostMuted] = useState(false);
@@ -47,7 +42,6 @@ export default function App() {
   const [speakingPlayers, setSpeakingPlayers] = useState({});
   const [voiceError, setVoiceError] = useState('');
 
-  // Refs for WebRTC & Audio
   const peerRef = useRef(null);
   const localStreamRef = useRef(null);
   const peerCallsRef = useRef({});
@@ -55,7 +49,6 @@ export default function App() {
   const audioAnalyserRef = useRef(null);
 
   useEffect(() => {
-    // Socket Connection Lifecycle Events
     const onConnect = () => {
       setIsConnected(true);
       setErrorMessage('');
@@ -63,74 +56,53 @@ export default function App() {
 
     const onDisconnect = (reason) => {
       setIsConnected(false);
-      setErrorMessage(`Disconnected from server (${reason}). Reconnecting...`);
+      setErrorMessage(`Disconnected (${reason}). Reconnecting...`);
     };
 
     const onConnectError = (err) => {
       setIsConnected(false);
-      setErrorMessage(`Connection error: ${err.message}. Server may be spinning up.`);
+      setErrorMessage(`Connection error: ${err.message}. Server warming up...`);
     };
 
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
     socket.on('connect_error', onConnectError);
 
-    // Game & Room Handlers
-    socket.on('room-created', ({ roomId, room }) => {
+    socket.on('room-created', ({ room }) => {
       setCurrentRoom(room);
       setGameState('lobby');
       setErrorMessage('');
     });
 
-    socket.on('room-joined', ({ roomId, room }) => {
+    socket.on('room-joined', ({ room }) => {
       setCurrentRoom(room);
       setGameState(room.gameState === 'playing' ? 'playing' : 'lobby');
       setErrorMessage('');
     });
 
-    socket.on('player-joined', ({ room }) => {
-      setCurrentRoom(room);
-    });
-
+    socket.on('player-joined', ({ room }) => setCurrentRoom(room));
     socket.on('player-left', ({ socketId, room }) => {
       setCurrentRoom(room);
       removeRemoteAudio(socketId);
     });
-
-    socket.on('host-changed', ({ room }) => {
-      setCurrentRoom(room);
-    });
-
-    socket.on('receive-message', (msgData) => {
-      setMessages((prev) => [...prev, msgData]);
-    });
-
+    socket.on('host-changed', ({ room }) => setCurrentRoom(room));
+    socket.on('receive-message', (msgData) => setMessages((prev) => [...prev, msgData]));
     socket.on('game-started', ({ room }) => {
       setCurrentRoom(room);
       setGameState('playing');
     });
-
-    socket.on('error-message', (msg) => {
-      setErrorMessage(msg);
-    });
-
-    socket.on('voice-state-updated', (updatedVoiceStates) => {
-      setVoiceStates(updatedVoiceStates);
-    });
+    socket.on('error-message', (msg) => setErrorMessage(msg));
+    socket.on('voice-state-updated', (updatedVoiceStates) => setVoiceStates(updatedVoiceStates));
 
     socket.on('force-host-mute', ({ hostMuted: isMutedByHost }) => {
       setHostMuted(isMutedByHost);
       if (localStreamRef.current) {
         const audioTrack = localStreamRef.current.getAudioTracks()[0];
-        if (audioTrack) {
-          audioTrack.enabled = !(isMutedByHost || selfMuted);
-        }
+        if (audioTrack) audioTrack.enabled = !(isMutedByHost || selfMuted);
       }
     });
 
-    socket.on('user-disconnected-voice', ({ socketId }) => {
-      removeRemoteAudio(socketId);
-    });
+    socket.on('user-disconnected-voice', ({ socketId }) => removeRemoteAudio(socketId));
 
     return () => {
       socket.off('connect', onConnect);
@@ -151,9 +123,7 @@ export default function App() {
   }, [selfMuted]);
 
   useEffect(() => {
-    return () => {
-      cleanupVoice();
-    };
+    return () => cleanupVoice();
   }, []);
 
   const joinVoiceChannel = async () => {
@@ -162,11 +132,7 @@ export default function App() {
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
-        },
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
         video: false
       });
 
@@ -183,9 +149,7 @@ export default function App() {
 
       peer.on('call', (call) => {
         call.answer(localStreamRef.current);
-        call.on('stream', (remoteStream) => {
-          attachRemoteStream(call.metadata?.socketId, remoteStream);
-        });
+        call.on('stream', (remoteStream) => attachRemoteStream(call.metadata?.socketId, remoteStream));
         call.on('close', () => cleanupCall(call.metadata?.socketId));
         call.on('error', () => cleanupCall(call.metadata?.socketId));
       });
@@ -198,14 +162,10 @@ export default function App() {
       socket.on('voice-participants', (participants) => {
         participants.forEach(({ socketId, peerId }) => {
           if (peerId && localStreamRef.current) {
-            const call = peer.call(peerId, localStreamRef.current, {
-              metadata: { socketId: socket.id }
-            });
+            const call = peer.call(peerId, localStreamRef.current, { metadata: { socketId: socket.id } });
             if (call) {
               peerCallsRef.current[socketId] = call;
-              call.on('stream', (remoteStream) => {
-                attachRemoteStream(socketId, remoteStream);
-              });
+              call.on('stream', (remoteStream) => attachRemoteStream(socketId, remoteStream));
               call.on('close', () => cleanupCall(socketId));
               call.on('error', () => cleanupCall(socketId));
             }
@@ -215,23 +175,18 @@ export default function App() {
 
       socket.on('user-connected-voice', ({ socketId, peerId }) => {
         if (peerId && localStreamRef.current && peerRef.current) {
-          const call = peerRef.current.call(peerId, localStreamRef.current, {
-            metadata: { socketId: socket.id }
-          });
+          const call = peerRef.current.call(peerId, localStreamRef.current, { metadata: { socketId: socket.id } });
           if (call) {
             peerCallsRef.current[socketId] = call;
-            call.on('stream', (remoteStream) => {
-              attachRemoteStream(socketId, remoteStream);
-            });
+            call.on('stream', (remoteStream) => attachRemoteStream(socketId, remoteStream));
             call.on('close', () => cleanupCall(socketId));
             call.on('error', () => cleanupCall(socketId));
           }
         }
       });
-
     } catch (err) {
-      console.error('Microphone Access Error:', err);
-      setVoiceError('Microphone permission denied or device not found.');
+      console.error('Microphone Error:', err);
+      setVoiceError('Microphone permission denied.');
     }
   };
 
@@ -253,12 +208,9 @@ export default function App() {
         if (!localStreamRef.current) return;
         analyser.getByteFrequencyData(dataArray);
         let sum = 0;
-        for (let i = 0; i < bufferLength; i++) {
-          sum += dataArray[i];
-        }
+        for (let i = 0; i < bufferLength; i++) sum += dataArray[i];
         const average = sum / bufferLength;
         const isSpeaking = average > 25 && !selfMuted && !hostMuted;
-
         setSpeakingPlayers((prev) => ({ ...prev, [socket.id]: isSpeaking }));
         requestAnimationFrame(checkVolume);
       };
@@ -279,7 +231,7 @@ export default function App() {
       document.body.appendChild(audioEl);
     }
     audioEl.srcObject = stream;
-    audioEl.play().catch(e => console.log('Autoplay handling:', e));
+    audioEl.play().catch((e) => console.log('Autoplay blocked:', e));
   };
 
   const removeRemoteAudio = (remoteSocketId) => {
@@ -302,14 +254,14 @@ export default function App() {
 
   const cleanupVoice = () => {
     if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach(track => track.stop());
+      localStreamRef.current.getTracks().forEach((track) => track.stop());
       localStreamRef.current = null;
     }
     if (peerRef.current) {
       peerRef.current.destroy();
       peerRef.current = null;
     }
-    Object.keys(audioElementsRef.current).forEach(id => removeRemoteAudio(id));
+    Object.keys(audioElementsRef.current).forEach((id) => removeRemoteAudio(id));
     setVoiceJoined(false);
   };
 
@@ -317,37 +269,23 @@ export default function App() {
     if (hostMuted) return;
     const newMuteState = !selfMuted;
     setSelfMuted(newMuteState);
-
     if (localStreamRef.current) {
       const audioTrack = localStreamRef.current.getAudioTracks()[0];
-      if (audioTrack) {
-        audioTrack.enabled = !newMuteState;
-      }
+      if (audioTrack) audioTrack.enabled = !newMuteState;
     }
     socket.emit('voice-mute-self', { roomId: currentRoom.id, selfMuted: newMuteState });
   };
 
-  const handleHostMute = (targetSocketId) => {
-    socket.emit('host-mute-player', { roomId: currentRoom.id, targetSocketId });
-  };
-
-  const handleHostUnmute = (targetSocketId) => {
-    socket.emit('host-unmute-player', { roomId: currentRoom.id, targetSocketId });
-  };
-
-  const handleHostMuteAll = () => {
-    socket.emit('host-mute-all', { roomId: currentRoom.id });
-  };
-
-  const handleHostUnmuteAll = () => {
-    socket.emit('host-unmute-all', { roomId: currentRoom.id });
-  };
+  const handleHostMute = (targetSocketId) => socket.emit('host-mute-player', { roomId: currentRoom.id, targetSocketId });
+  const handleHostUnmute = (targetSocketId) => socket.emit('host-unmute-player', { roomId: currentRoom.id, targetSocketId });
+  const handleHostMuteAll = () => socket.emit('host-mute-all', { roomId: currentRoom.id });
+  const handleHostUnmuteAll = () => socket.emit('host-unmute-all', { roomId: currentRoom.id });
 
   const handleCreateRoom = () => {
     if (!playerName.trim()) return setErrorMessage('Please enter your name.');
     if (!socket.connected) {
       socket.connect();
-      return setErrorMessage('Connecting to server... Please try again in a moment.');
+      return setErrorMessage('Connecting... Please try again shortly.');
     }
     socket.emit('create-room', { playerName });
   };
@@ -357,7 +295,7 @@ export default function App() {
     if (!roomIdInput.trim()) return setErrorMessage('Please enter a Room Code.');
     if (!socket.connected) {
       socket.connect();
-      return setErrorMessage('Connecting to server... Please try again in a moment.');
+      return setErrorMessage('Connecting... Please try again shortly.');
     }
     socket.emit('join-room', { roomId: roomIdInput, playerName });
   };
@@ -382,9 +320,7 @@ export default function App() {
     <div className="app-container">
       <header className="app-header">
         <h1>CHOR SIPAHI</h1>
-        <p className="subtitle">4-Player Realtime Voice & Strategy Game</p>
-        
-        {/* ONLINE / OFFLINE STATUS INDICATOR */}
+        <p className="subtitle">4-Player Realtime Voice Game</p>
         <div className={`status-indicator ${isConnected ? 'online' : 'offline'}`}>
           <span className="status-dot"></span>
           <span className="status-text">{isConnected ? 'Server Connected' : 'Server Offline'}</span>
@@ -406,11 +342,7 @@ export default function App() {
             />
           </div>
           <div className="action-buttons">
-            <button 
-              className="btn btn-primary" 
-              onClick={handleCreateRoom}
-              disabled={!isConnected}
-            >
+            <button className="btn btn-primary" onClick={handleCreateRoom} disabled={!isConnected}>
               Create Room
             </button>
             <div className="divider">OR</div>
@@ -421,11 +353,7 @@ export default function App() {
                 value={roomIdInput} 
                 onChange={(e) => setRoomIdInput(e.target.value.toUpperCase())}
               />
-              <button 
-                className="btn btn-secondary" 
-                onClick={handleJoinRoom}
-                disabled={!isConnected}
-              >
+              <button className="btn btn-secondary" onClick={handleJoinRoom} disabled={!isConnected}>
                 Join Room
               </button>
             </div>
@@ -445,7 +373,6 @@ export default function App() {
               <div className="voice-panel">
                 <h3>Voice Chat</h3>
                 {voiceError && <p className="voice-error">{voiceError}</p>}
-                
                 {!voiceJoined ? (
                   <button className="btn btn-voice" onClick={joinVoiceChannel}>
                     🎙️ Join Voice Chat
@@ -521,7 +448,7 @@ export default function App() {
               {gameState === 'playing' && (
                 <div className="game-board card">
                   <h3>Game in Progress</h3>
-                  <p>In-game logic active. Voice remains connected across screens seamlessly.</p>
+                  <p>In-game state loaded successfully.</p>
                 </div>
               )}
             </div>

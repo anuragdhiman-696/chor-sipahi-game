@@ -5,26 +5,27 @@
     <author email="dev@example.com" href="http://cordova.io">Developer</author>
     <content src="index.html" />
 
-    <!-- Access & Navigation Rules -->
+    <!-- Navigation & Access Policies -->
     <access origin="*" />
     <allow-navigation href="*" />
     <allow-intent href="*" />
 
-    <!-- Default Icon -->
+    <!-- Application Icon -->
     <icon src="res/icon.png" />
 
     <platform name="android">
         <icon src="res/icon.png" />
 
-        <!-- Correctly injection of Application Attributes -->
+        <!-- Merge Cleartext Traffic Attribute into AndroidManifest -->
         <edit-config file="AndroidManifest.xml" mode="merge" target="/manifest/application">
             <application android:usesCleartextTraffic="true" />
         </edit-config>
 
-        <!-- Permissions Injection -->
+        <!-- Inject Required Android Permissions -->
         <config-file target="AndroidManifest.xml" parent="/manifest">
             <uses-permission android:name="android.permission.INTERNET" />
             <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+            <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
             <uses-permission android:name="android.permission.RECORD_AUDIO" />
             <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
         </config-file>
