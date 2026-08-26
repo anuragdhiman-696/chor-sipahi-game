@@ -654,4 +654,32 @@ function App() {
   );
 }
 
+return (
+  <>
+    <style>{`
+      * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
+      body { background-color: #0f172a !important; color: #f8fafc !important; }
+      .container { width: 100%; max-width: 960px; margin: 0 auto; padding: 40px 20px; }
+      .center { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 80vh; text-align: center; }
+      .main-title { font-size: 2.2rem; font-weight: 800; color: #f8fafc; margin-bottom: 8px; }
+      .subtitle { color: #94a3b8; margin-bottom: 24px; }
+      .card { background: #1e293b; padding: 32px; border-radius: 16px; width: 100%; max-width: 400px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5); border: 1px solid #334155; }
+      label { display: block; font-size: 0.85rem; font-weight: 600; color: #94a3b8; margin-bottom: 6px; text-align: left; }
+      input { width: 100%; padding: 12px; margin-bottom: 16px; border-radius: 8px; border: 1px solid #334155; background: #0f172a; color: #fff; font-size: 1rem; }
+      .btn { width: 100%; padding: 12px; border: none; border-radius: 8px; font-size: 1rem; font-weight: 700; cursor: pointer; transition: all 0.2s; }
+      .btn-primary { background: #3b82f6; color: #fff; }
+      .btn-primary:hover { background: #2563eb; }
+      .btn-secondary { background: #475569; color: #fff; }
+      .btn-secondary:hover { background: #334155; }
+      .divider { text-align: center; margin: 16px 0; font-size: 0.8rem; color: #64748b; font-weight: bold; }
+    `}</style>
+
+    <div className="container center">
+      <h1 className="main-title">👑 Chor-Sipahi Multiplayer</h1>
+      <p className="subtitle">Real-time multiplayer paper chit guessing game</p>
+      {/* Rest of your JSX code */}
+    </div>
+  </>
+);
+
 export default App;
