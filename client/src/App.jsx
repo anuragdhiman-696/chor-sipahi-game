@@ -4,7 +4,6 @@ import Peer from 'peerjs';
 import './App.css';
 
 // Change URL to match your Express server port (default 5000 or process.env.PORT)
-// App.jsx
 const SOCKET_SERVER_URL = 'https://chor-sipahi-game.onrender.com';
 
 const socket = io(SOCKET_SERVER_URL, {
@@ -53,7 +52,6 @@ export default function App() {
   // SOCKET.IO LISTENERS & GAME STATE SYNC
   // -------------------------------------------------------------
   useEffect(() => {
-    // Socket Connection Listeners
     function onConnect() {
       setIsConnected(true);
       console.log('Connected to server with ID:', socket.id);
@@ -69,36 +67,30 @@ export default function App() {
       console.error('Connection error:', err.message);
     }
 
-    socket.on('connect', onConnect);
-    socket.on('disconnect', onDisconnect);
-    socket.on('connect_error', onConnectError);
-
-    // Room Listeners
-    socket.on('room-created', ({ room }) => {
+    const onRoomCreated = ({ room }) => {
       setCurrentRoom(room);
       setGameState(room.gameState);
       setJoined(true);
-    });
+    };
 
-    socket.on('room-joined', ({ room }) => {
+    const onRoomJoined = ({ room }) => {
       setCurrentRoom(room);
       setJoined(true);
-    });
+    };
 
-    socket.on('player-joined', ({ room }) => {
+    const onPlayerJoined = ({ room }) => {
       setCurrentRoom(room);
-    });
+    };
 
-    socket.on('player-left', ({ room }) => {
+    const onPlayerLeft = ({ room }) => {
       setCurrentRoom(room);
-    });
+    };
 
-    socket.on('host-changed', ({ room }) => {
+    const onHostChanged = ({ room }) => {
       setCurrentRoom(room);
-    });
+    };
 
-    // Game Event Listeners
-    socket.on('roundStarted', (data) => {
+    const onRoundStarted = (data) => {
       setRoles(data.roles);
       setScores(data.scores);
       setCurrentRound(data.currentRound);
@@ -110,9 +102,9 @@ export default function App() {
       if (data.roles && data.roles[socket.id]) {
         setMyRole(data.roles[socket.id]);
       }
-    });
+    };
 
-    socket.on('roundEnded', (data) => {
+    const onRoundEnded = (data) => {
       setScores(data.scores);
       setRoles(data.roles);
       setGameState('ROUND_OVER');
@@ -120,9 +112,9 @@ export default function App() {
         isCorrect: data.isCorrect,
         message: data.isCorrect ? 'Correct Guess! Wazir caught the Chor!' : 'Wrong Guess! Chor escaped!'
       });
-    });
+    };
 
-    socket.on('sessionEnded', (data) => {
+    const onSessionEnded = (data) => {
       setScores(data.scores);
       setRoles(data.roles);
       setSessionWinners(data.winners);
@@ -131,23 +123,21 @@ export default function App() {
         isCorrect: data.isCorrect,
         message: data.isCorrect ? 'Correct Final Guess!' : 'Wrong Final Guess!'
       });
-    });
+    };
 
-    // Chat Listeners
-    socket.on('chat-history', (messages) => {
+    const onChatHistory = (messages) => {
       setChatMessages(messages || []);
-    });
+    };
 
-    socket.on('receive-message', (msg) => {
+    const onReceiveMessage = (msg) => {
       setChatMessages((prev) => [...prev, msg]);
-    });
+    };
 
-    socket.on('error-message', (msg) => {
+    const onErrorMesssage = (msg) => {
       alert(msg);
-    });
+    };
 
-    // Voice Sync Listeners
-    socket.on('voice-state-updated', (voiceStates) => {
+    const onVoiceStateUpdated = (voiceStates) => {
       const mPlayers = {};
       Object.entries(voiceStates || {}).forEach(([id, state]) => {
         if (state.hostMuted || state.selfMuted) {
@@ -155,22 +145,51 @@ export default function App() {
         }
       });
       setMutedPlayers(mPlayers);
-    });
+    };
 
-    socket.on('force-host-mute', ({ hostMuted }) => {
+    const onForceHostMute = ({ hostMuted }) => {
       if (localStream.current) {
         localStream.current.getAudioTracks().forEach((track) => {
           track.enabled = !hostMuted;
         });
       }
       setIsSelfMuted(hostMuted);
-    });
+    };
+
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
+    socket.on('connect_error', onConnectError);
+    socket.on('room-created', onRoomCreated);
+    socket.on('room-joined', onRoomJoined);
+    socket.on('player-joined', onPlayerJoined);
+    socket.on('player-left', onPlayerLeft);
+    socket.on('host-changed', onHostChanged);
+    socket.on('roundStarted', onRoundStarted);
+    socket.on('roundEnded', onRoundEnded);
+    socket.on('sessionEnded', onSessionEnded);
+    socket.on('chat-history', onChatHistory);
+    socket.on('receive-message', onReceiveMessage);
+    socket.on('error-message', onErrorMesssage);
+    socket.on('voice-state-updated', onVoiceStateUpdated);
+    socket.on('force-host-mute', onForceHostMute);
 
     return () => {
       socket.off('connect', onConnect);
       socket.off('disconnect', onDisconnect);
       socket.off('connect_error', onConnectError);
-      socket.off();
+      socket.off('room-created', onRoomCreated);
+      socket.off('room-joined', onRoomJoined);
+      socket.off('player-joined', onPlayerJoined);
+      socket.off('player-left', onPlayerLeft);
+      socket.off('host-changed', onHostChanged);
+      socket.off('roundStarted', onRoundStarted);
+      socket.off('roundEnded', onRoundEnded);
+      socket.off('sessionEnded', onSessionEnded);
+      socket.off('chat-history', onChatHistory);
+      socket.off('receive-message', onReceiveMessage);
+      socket.off('error-message', onErrorMesssage);
+      socket.off('voice-state-updated', onVoiceStateUpdated);
+      socket.off('force-host-mute', onForceHostMute);
     };
   }, []);
 
@@ -208,6 +227,11 @@ export default function App() {
         });
       });
 
+      // Clear existing listeners before attaching to avoid multiple instances
+      socket.off('voice-participants');
+      socket.off('user-connected-voice');
+      socket.off('user-disconnected-voice');
+
       socket.on('voice-participants', (participants) => {
         participants.forEach(({ peerId: remotePeerId }) => {
           connectToNewUser(remotePeerId, stream);
@@ -218,14 +242,14 @@ export default function App() {
         connectToNewUser(remotePeerId, stream);
       });
 
-      socket.on('user-disconnected-voice', ({ socketId }) => {
-        if (peerConnections.current[socketId]) {
-          peerConnections.current[socketId].close();
-          delete peerConnections.current[socketId];
+      socket.on('user-disconnected-voice', ({ peerId: remotePeerId }) => {
+        if (peerConnections.current[remotePeerId]) {
+          peerConnections.current[remotePeerId].close();
+          delete peerConnections.current[remotePeerId];
         }
-        if (audioElements.current[socketId]) {
-          audioElements.current[socketId].remove();
-          delete audioElements.current[socketId];
+        if (audioElements.current[remotePeerId]) {
+          audioElements.current[remotePeerId].remove();
+          delete audioElements.current[remotePeerId];
         }
       });
     } catch (err) {
@@ -333,13 +357,13 @@ export default function App() {
   };
 
   const isWazir = myRole === 'Wazir';
-const isHost = currentRoom?.host === socket.id;
+  const isHost = currentRoom?.host === socket.id;
 
-const currentPlayer = currentRoom?.players?.find(
-  (p) => p.id === socket.id
-);
+  const currentPlayer = currentRoom?.players?.find(
+    (p) => p.id === socket.id
+  );
 
-const isSpectator = currentPlayer?.isSpectator === true;
+  const isSpectator = currentPlayer?.isSpectator === true;
 
   // Reusable Connection Status Indicator Bar
   const renderConnectionBar = () => (
@@ -421,59 +445,59 @@ const isSpectator = currentPlayer?.isSpectator === true;
       <div className="container center">
         {renderConnectionBar()}
         <h2>
-  Room Code: <span className="highlight">{currentRoom?.code}</span>
-</h2>
+          Room Code: <span className="highlight">{currentRoom?.code}</span>
+        </h2>
 
-{isSpectator && (
-  <div className="spectator-mode-banner">
-    👁 You are watching as a spectator
-    <br />
-    <small>
-      The 4 player slots are full. You can watch the game and use chat,
-      but you cannot participate.
-    </small>
-  </div>
-)}
+        {isSpectator && (
+          <div className="spectator-mode-banner">
+            👁 You are watching as a spectator
+            <br />
+            <small>
+              The 4 player slots are full. You can watch the game and use chat,
+              but you cannot participate.
+            </small>
+          </div>
+        )}
         <div className="card">
           <h3>🎮 Players ({activePlayers.length}/4)</h3>
 
-<ul className="lobby-player-list">
-  {activePlayers.map((p) => (
-    <li key={p.id} className="lobby-player-item">
-      <span>
-        {p.name} {p.id === socket.id ? '(You)' : ''}
-      </span>
+          <ul className="lobby-player-list">
+            {activePlayers.map((p) => (
+              <li key={p.id} className="lobby-player-item">
+                <span>
+                  {p.name} {p.id === socket.id ? '(You)' : ''}
+                </span>
 
-      {p.id === currentRoom.host && (
-        <span className="host-badge">👑 Host</span>
-      )}
-    </li>
-  ))}
-</ul>
+                {p.id === currentRoom.host && (
+                  <span className="host-badge">👑 Host</span>
+                )}
+              </li>
+            ))}
+          </ul>
 
-{currentRoom?.players?.some((p) => p.isSpectator) && (
-  <>
-    <h3 style={{ marginTop: '20px' }}>
-      👁 Spectators ({currentRoom.players.filter((p) => p.isSpectator).length})
-    </h3>
+          {currentRoom?.players?.some((p) => p.isSpectator) && (
+            <>
+              <h3 style={{ marginTop: '20px' }}>
+                👁 Spectators ({currentRoom.players.filter((p) => p.isSpectator).length})
+              </h3>
 
-    <ul className="lobby-player-list">
-      {currentRoom.players
-        .filter((p) => p.isSpectator)
-        .map((p) => (
-          <li key={p.id} className="lobby-player-item">
-            <span>
-              {p.name} {p.id === socket.id ? '(You)' : ''}
-            </span>
+              <ul className="lobby-player-list">
+                {currentRoom.players
+                  .filter((p) => p.isSpectator)
+                  .map((p) => (
+                    <li key={p.id} className="lobby-player-item">
+                      <span>
+                        {p.name} {p.id === socket.id ? '(You)' : ''}
+                      </span>
 
-            <span className="spectator-badge">
-              👁 Spectator
-            </span>
-          </li>
-        ))}
-    </ul>
-  </>
-)}
+                      <span className="spectator-badge">
+                        👁 Spectator
+                      </span>
+                    </li>
+                  ))}
+              </ul>
+            </>
+          )}
 
           <div className="voice-setup">
             {!isVoiceConnected ? (
@@ -518,26 +542,26 @@ const isSpectator = currentPlayer?.isSpectator === true;
           </div>
 
           {isSpectator ? (
-  <p className="waiting-text">
-    👁 You are a spectator. Waiting for the game to start...
-  </p>
-) : isHost ? (
-  <div className="host-actions">
-    <button
-      className="btn btn-primary"
-      onClick={handleStartGame}
-      disabled={activePlayers.length !== 4}
-    >
-      {activePlayers.length === 4
-        ? '🚀 Start Game'
-        : 'Waiting for 4 Players...'}
-    </button>
-  </div>
-) : (
-  <p className="waiting-text">
-    Waiting for the host to start the game...
-  </p>
-)}
+            <p className="waiting-text">
+              👁 You are a spectator. Waiting for the game to start...
+            </p>
+          ) : isHost ? (
+            <div className="host-actions">
+              <button
+                className="btn btn-primary"
+                onClick={handleStartGame}
+                disabled={activePlayers.length !== 4}
+              >
+                {activePlayers.length === 4
+                  ? '🚀 Start Game'
+                  : 'Waiting for 4 Players...'}
+              </button>
+            </div>
+          ) : (
+            <p className="waiting-text">
+              Waiting for the host to start the game...
+            </p>
+          )}
         </div>
       </div>
     );
@@ -565,49 +589,45 @@ const isSpectator = currentPlayer?.isSpectator === true;
 
       <div className="main-layout">
         {/* Chit Component */}
-       <div className="chit-section">
-  {isSpectator ? (
-    <div className="card spectator-card">
-      <h3>👁 Spectator Mode</h3>
-      <p>
-        You are watching this game as a spectator.
-      </p>
-      <p>
-        You don't have a secret role or game actions.
-      </p>
-    </div>
-  ) : (
-    <>
-      <h3>Your Secret Chit</h3>
+        <div className="chit-section">
+          {isSpectator ? (
+            <div className="card spectator-card">
+              <h3>👁 Spectator Mode</h3>
+              <p>You are watching this game as a spectator.</p>
+              <p>You don't have a secret role or game actions.</p>
+            </div>
+          ) : (
+            <>
+              <h3>Your Secret Chit</h3>
 
-      <div
-        className={`chit-card ${isChitRevealed ? 'unfolded' : 'folded'}`}
-        onClick={() => myRole && setIsChitRevealed((prev) => !prev)}
-      >
-        {isChitRevealed && myRole ? (
-          <>
-            <span className="chit-stamp">ROYAL DECREE</span>
-            <span className="chit-role-title">{myRole}</span>
-          </>
-        ) : (
-          <>
-            <span className="chit-stamp">SECRET ROLE</span>
-            <span className="chit-icon">📜</span>
-            <span className="chit-hint">Tap to Unfold Chit</span>
-          </>
-        )}
-      </div>
+              <div
+                className={`chit-card ${isChitRevealed ? 'unfolded' : 'folded'}`}
+                onClick={() => myRole && setIsChitRevealed((prev) => !prev)}
+              >
+                {isChitRevealed && myRole ? (
+                  <>
+                    <span className="chit-stamp">ROYAL DECREE</span>
+                    <span className="chit-role-title">{myRole}</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="chit-stamp">SECRET ROLE</span>
+                    <span className="chit-icon">📜</span>
+                    <span className="chit-hint">Tap to Unfold Chit</span>
+                  </>
+                )}
+              </div>
 
-      <button
-        className="btn btn-secondary"
-        style={{ marginTop: '15px' }}
-        onClick={() => setIsChitRevealed((prev) => !prev)}
-        disabled={!myRole}
-      >
-        {isChitRevealed ? 'Fold & Hide Role' : 'Reveal Role'}
-      </button>
-    </>
-  )}
+              <button
+                className="btn btn-secondary"
+                style={{ marginTop: '15px' }}
+                onClick={() => setIsChitRevealed((prev) => !prev)}
+                disabled={!myRole}
+              >
+                {isChitRevealed ? 'Fold & Hide Role' : 'Reveal Role'}
+              </button>
+            </>
+          )}
 
           {/* Voice Sidebar */}
           <div className="voice-controls-panel">
@@ -620,7 +640,7 @@ const isSpectator = currentPlayer?.isSpectator === true;
               <button
                 className={`btn btn-sm ${isSelfMuted ? 'btn-danger' : 'btn-success'}`}
                 onClick={toggleSelfMute}
-                >
+              >
                 {isSelfMuted ? 'Unmute Mic' : 'Mute Mic'}
               </button>
             )}
@@ -630,6 +650,7 @@ const isSpectator = currentPlayer?.isSpectator === true;
         {/* Players Grid */}
         <div className="players-section">
           <h3>Players Board</h3>
+
           <div className="players-grid">
             {currentRoom?.players
               ?.filter((p) => !p.isSpectator)
@@ -638,35 +659,6 @@ const isSpectator = currentPlayer?.isSpectator === true;
                 const canTarget = isWazir && !isMe && gameState === 'GUESSING';
                 const showRole = gameState !== 'GUESSING' || isMe;
                 const isMuted = mutedPlayers[p.id];
-    
-
-          {/* Wazir Guess Control */}
-          {!isSpectator && isWazir && gameState === 'GUESSING' && (
-            <div className="wazir-controls">
-              <p>
-                You are the <strong>Wazir</strong>! Select a player and guess
-                who holds the <strong>Chor</strong> role.
-              </p>
-
-              <button
-                className="btn btn-primary"
-                onClick={handleMakeGuess}
-                disabled={!selectedTarget}
-              >
-                Confirm Guess
-              </button>
-            </div>
-          )}
-
-          {/* Round Controls */}
-          {gameState === 'ROUND_OVER' && isHost && (
-            <div className="host-controls">
-              <button className="btn btn-primary" onClick={handleNextRound}>
-                Next Round ➔
-              </button>
-            </div>
-          )}
-               
 
                 return (
                   <div
@@ -678,11 +670,17 @@ const isSpectator = currentPlayer?.isSpectator === true;
                       <span className="player-name">
                         {p.name} {isMe ? '(You)' : ''}
                       </span>
+
                       {isMuted && <span className="muted-icon">🔇</span>}
                     </div>
 
-                    <div className="player-score">Score: {scores[p.id] || 0}</div>
-                    <div className="player-role">Role: {showRole ? roles[p.id] : '???'}</div>
+                    <div className="player-score">
+                      Score: {scores[p.id] || 0}
+                    </div>
+
+                    <div className="player-role">
+                      Role: {showRole ? roles[p.id] : '???'}
+                    </div>
 
                     {isHost && !isMe && (
                       <button
@@ -700,8 +698,25 @@ const isSpectator = currentPlayer?.isSpectator === true;
               })}
           </div>
 
+          {/* Wazir Guess Control */}
+          {isWazir && gameState === 'GUESSING' && !isSpectator && (
+            <div className="wazir-controls">
+              <p>
+                You are the <strong>Wazir</strong>! Select a player and guess who
+                holds the <strong>Chor</strong> role.
+              </p>
 
-          {/* Round Controls */}
+              <button
+                className="btn btn-primary"
+                onClick={handleMakeGuess}
+                disabled={!selectedTarget}
+              >
+                Confirm Guess
+              </button>
+            </div>
+          )}
+
+          {/* Host-only Next Round */}
           {gameState === 'ROUND_OVER' && isHost && (
             <div className="host-controls">
               <button className="btn btn-primary" onClick={handleNextRound}>
@@ -710,8 +725,9 @@ const isSpectator = currentPlayer?.isSpectator === true;
             </div>
           )}
 
-          {/* Chat Window */}
+          {/* In-Game Chat Window */}
           <div className="chat-box">
+            <h3>💬 Room Chat</h3>
             <div className="chat-messages">
               {chatMessages.map((msg, index) => (
                 <div key={index} className="chat-message">
