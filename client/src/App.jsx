@@ -5,7 +5,7 @@ import './App.css';
 
 const SOCKET_SERVER_URL = 'https://chor-sipahi-game.onrender.com';
 
-const socket = io(SOCKET_SERVER_URL, { 
+const socket = io(SOCKET_SERVER_URL, {
   autoConnect: true,
   reconnection: true,
   reconnectionAttempts: 50,
@@ -455,7 +455,7 @@ export default function App() {
   };
 
   const getRolePoints = (role) => {
-    switch(role) {
+    switch (role) {
       case 'Raja': return 1000;
       case 'Wazir': return 800;
       case 'Sipahi': return 500;
@@ -485,10 +485,10 @@ export default function App() {
           <h2>Join Game</h2>
           <div className="input-group">
             <label>Your Name</label>
-            <input 
-              type="text" 
-              placeholder="Enter name..." 
-              value={playerName} 
+            <input
+              type="text"
+              placeholder="Enter name..."
+              value={playerName}
               onChange={(e) => setPlayerName(e.target.value)}
             />
           </div>
@@ -498,10 +498,10 @@ export default function App() {
             </button>
             <div className="divider">OR</div>
             <div className="join-group">
-              <input 
-                type="text" 
-                placeholder="Room Code" 
-                value={roomIdInput} 
+              <input
+                type="text"
+                placeholder="Room Code"
+                value={roomIdInput}
                 onChange={(e) => setRoomIdInput(e.target.value.toUpperCase())}
               />
               <button className="btn btn-secondary" onClick={handleJoinRoom} disabled={!isConnected}>
@@ -534,8 +534,8 @@ export default function App() {
                   </button>
                 ) : (
                   <div className="voice-controls">
-                    <button 
-                      className={`btn ${selfMuted || hostMuted ? 'btn-muted' : 'btn-unmuted'}`} 
+                    <button
+                      className={`btn ${selfMuted || hostMuted ? 'btn-muted' : 'btn-unmuted'}`}
                       onClick={toggleSelfMute}
                       disabled={hostMuted}
                     >
@@ -578,28 +578,30 @@ export default function App() {
                       <p className="subtext">Tap the paper chit below to fold / unfold it!</p>
 
                       <div className="chit-wrapper">
-                        <div 
+                        <div
                           className={`chit-card ${isChitRevealed ? 'unfolded' : 'folded'}`}
-                          onClick={() => setIsChitRevealed(!isChitRevealed)}
+                          onClick={() => myRole && setIsChitRevealed(!isChitRevealed)}
                         >
-                          {isChitRevealed ? (
+                          {isChitRevealed && myRole ? (
                             <>
                               <span className="chit-stamp">ROYAL DECREE</span>
-                              <span className="chit-role-title">{myRole || 'Chit Revealed'}</span>
+                              <span className="chit-role-title">{myRole}</span>
                               <span className="chit-role-points">Base: +{getRolePoints(myRole)} Points</span>
                             </>
                           ) : (
                             <>
                               <span className="chit-stamp">RAJA WAZIR CHOR SIPAHI</span>
                               <span style={{ fontSize: '2rem', marginTop: '5px' }}>📜</span>
-                              <span style={{ fontSize: '0.85rem', color: '#666', marginTop: '5px' }}>Tap to Unfold</span>
+                              <span style={{ fontSize: '0.85rem', color: '#666', marginTop: '5px' }}>
+                                {myRole ? 'Tap to Unfold' : 'Waiting for Role...'}
+                              </span>
                             </>
                           )}
                         </div>
                       </div>
 
-                      <button 
-                        className="btn btn-secondary" 
+                      <button
+                        className="btn btn-secondary"
                         onClick={() => setIsChitRevealed(!isChitRevealed)}
                       >
                         {isChitRevealed ? 'Fold & Hide Role' : 'Reveal Role'}
@@ -691,8 +693,8 @@ export default function App() {
               {isHost && (
                 <div className="lobby-actions" style={{ marginTop: '20px' }}>
                   {gameState === 'lobby' && (
-                    <button 
-                      className="btn btn-primary btn-large" 
+                    <button
+                      className="btn btn-primary btn-large"
                       onClick={handleStartGame}
                       disabled={currentRoom.players.length < 4}
                     >
@@ -727,10 +729,10 @@ export default function App() {
               ))}
             </div>
             <form onSubmit={handleSendMessage} className="chat-input-form">
-              <input 
-                type="text" 
-                placeholder="Type a message..." 
-                value={newMessage} 
+              <input
+                type="text"
+                placeholder="Type a message..."
+                value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
               />
               <button type="submit" className="btn btn-primary">Send</button>
