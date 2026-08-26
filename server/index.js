@@ -18,24 +18,6 @@ const io = new Server(server, {
   }
 });
 
-/**
- * Room Data Structure:
- * {
- *   id: string,
- *   host: string (socket.id),
- *   players: Array<{ id: string, name: string, isHost: boolean, isSpectator: boolean, isReady: boolean }>,
- *   gameState: 'lobby' | 'playing' | 'round_end' | 'game_end',
- *   voiceStates: {
- *     [socketId]: {
- *       peerId: string,
- *       voiceJoined: boolean,
- *       selfMuted: boolean,
- *       hostMuted: boolean
- *     }
- *   },
- *   gameData: { ... }
- * }
- */
 const rooms = new Map();
 
 function generateRoomCode() {
@@ -75,7 +57,8 @@ io.on('connection', (socket) => {
       }],
       gameState: 'lobby',
       voiceStates: {},
-      chatMessages: []
+      chatMessages: [],
+      gameData: null
     };
 
     rooms.set(roomId, roomData);
@@ -108,16 +91,16 @@ io.on('connection', (socket) => {
     socket.join(cleanRoomId);
 
     const joinMessage = {
-  system: true,
-  text: `${playerObj.name} joined the room.`,
-  timestamp: new Date().toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit'
-  })
-};
+      system: true,
+      text: `${playerObj.name} joined the room.`,
+      timestamp: new Date().toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit'
+      })
+    };
 
-room.chatMessages.push(joinMessage);
-io.to(cleanRoomId).emit('receive-message', joinMessage);
+    room.chatMessages.push(joinMessage);
+    io.to(cleanRoomId).emit('receive-message', joinMessage);
 
     socket.emit('room-joined', { roomId: cleanRoomId, room });
     socket.emit('chat-history', room.chatMessages);
@@ -141,14 +124,12 @@ io.to(cleanRoomId).emit('receive-message', joinMessage);
       room.voiceStates[socket.id].voiceJoined = true;
     }
 
-    // Inform joining player of existing voice participants
     const activeVoiceParticipants = Object.entries(room.voiceStates)
       .filter(([id, state]) => state.voiceJoined && id !== socket.id)
       .map(([id, state]) => ({ socketId: id, peerId: state.peerId }));
 
     socket.emit('voice-participants', activeVoiceParticipants);
 
-    // Broadcast new participant to others
     socket.to(roomId).emit('user-connected-voice', {
       socketId: socket.id,
       peerId
@@ -165,7 +146,7 @@ io.to(cleanRoomId).emit('receive-message', joinMessage);
     broadcastVoiceStateUpdate(roomId);
   });
 
-  // SECURE HOST VOICE CONTROLS
+  // HOST VOICE CONTROLS
   socket.on('host-mute-player', ({ roomId, targetSocketId }) => {
     const room = rooms.get(roomId);
     if (!room) return;
@@ -263,52 +244,9 @@ io.to(cleanRoomId).emit('receive-message', joinMessage);
       player.role = roles[player.id];
     });
 
-    socket.on('make-guess', ({ roomId, targetSocketId }) => {
-  const room = rooms.get(roomId);
-
-  if (!room) return;
-
-  // Only the current Wazir can make the guess
-  if (!room.gameData || socket.id !== room.gameData.wazirId) {
-    return socket.emit('error-message', 'Only the Wazir can make the guess.');
-  }
-
-  const target = room.players.find(p => p.id === targetSocketId);
-
-  if (!target || target.isSpectator) {
-    return socket.emit('error-message', 'Invalid player selected.');
-  }
-
-  const chor = room.players.find(p => p.role === 'Chor');
-
-  if (!chor) {
-    return socket.emit('error-message', 'Chor role was not assigned.');
-  }
-
-  const correct = targetSocketId === chor.id;
-
-  const result = {
-    correct,
-    wazirName: room.players.find(p => p.id === socket.id)?.name || 'Wazir',
-    chorName: chor.name
-  };
-
-  // Reveal roles after the guess
-  room.players.forEach(player => {
-    player.role = player.role;
-  });
-
-  room.gameState = 'round_end';
-
-  io.to(roomId).emit('round-over', {
-    room,
-    result
-  });
-});
-
-    room.gameState = 'playing';
-
     const wazirId = shuffledPlayers[1].id;
+    room.gameData = { wazirId };
+    room.gameState = 'playing';
 
     io.to(roomId).emit('game-started', {
       room,
@@ -316,6 +254,44 @@ io.to(cleanRoomId).emit('receive-message', joinMessage);
       wazirId
     });
   });
+
+  socket.on('make-guess', ({ roomId, targetSocketId }) => {
+    const room = rooms.get(roomId);
+
+    if (!room) return;
+
+    if (!room.gameData || socket.id !== room.gameData.wazirId) {
+      return socket.emit('error-message', 'Only the Wazir can make the guess.');
+    }
+
+    const target = room.players.find(p => p.id === targetSocketId);
+
+    if (!target || target.isSpectator) {
+      return socket.emit('error-message', 'Invalid player selected.');
+    }
+
+    const chor = room.players.find(p => p.role === 'Chor');
+
+    if (!chor) {
+      return socket.emit('error-message', 'Chor role was not assigned.');
+    }
+
+    const correct = targetSocketId === chor.id;
+
+    const result = {
+      correct,
+      wazirName: room.players.find(p => p.id === socket.id)?.name || 'Wazir',
+      chorName: chor.name
+    };
+
+    room.gameState = 'round_end';
+
+    io.to(roomId).emit('round-over', {
+      room,
+      result
+    });
+  });
+
   socket.on('disconnect', () => {
     console.log(`User Disconnected: ${socket.id}`);
     rooms.forEach((room, roomId) => {
@@ -323,17 +299,17 @@ io.to(cleanRoomId).emit('receive-message', joinMessage);
       if (playerIndex !== -1) {
         const leavingPlayer = room.players[playerIndex];
 
-const leaveMessage = {
-  system: true,
-  text: `${leavingPlayer.name} left the room.`,
-  timestamp: new Date().toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit'
-  })
-};
+        const leaveMessage = {
+          system: true,
+          text: `${leavingPlayer.name} left the room.`,
+          timestamp: new Date().toLocaleTimeString([], {
+            hour: '2-digit',
+            minute: '2-digit'
+          })
+        };
 
-room.chatMessages.push(leaveMessage);
-io.to(roomId).emit('receive-message', leaveMessage);
+        room.chatMessages.push(leaveMessage);
+        io.to(roomId).emit('receive-message', leaveMessage);
         room.players.splice(playerIndex, 1);
         delete room.voiceStates[socket.id];
 

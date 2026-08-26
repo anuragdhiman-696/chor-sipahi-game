@@ -14,7 +14,7 @@ function App() {
   const [playerName, setPlayerName] = useState('');
   const [roomCode, setRoomCode] = useState('');
   const [currentRoom, setCurrentRoom] = useState(null);
-  const [gameState, setGameState] = useState('lobby'); // 'lobby', 'playing', 'ended'
+  const [gameState, setGameState] = useState('lobby');
 
   // Game Logic State
   const [myRole, setMyRole] = useState(null);
@@ -47,8 +47,8 @@ function App() {
   // -------------------------------------------------------------
   useEffect(() => {
     socket.on('chat-history', (messages) => {
-  setChatMessages(messages || []);
-});
+      setChatMessages(messages || []);
+    });
 
     socket.on('connect', () => {
       console.log('Connected to socket server:', socket.id);
@@ -80,7 +80,6 @@ function App() {
       setSelectedTarget(null);
       setWazirSocketId(wazirId);
 
-      // Explicitly set role for this socket
       if (roles && roles[socket.id]) {
         setMyRole(roles[socket.id]);
       }
@@ -245,7 +244,6 @@ function App() {
     audio.autoplay = true;
     audioElements.current[remotePeerId] = audio;
 
-    // Detect volume to set active speaking border
     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
     const source = audioContext.createMediaStreamSource(stream);
     const analyser = audioContext.createAnalyser();
@@ -300,45 +298,45 @@ function App() {
 
   const handleMakeGuess = () => {
     if (!selectedTarget) return alert('Select a player to guess as Chor!');
-    socket.emit('make-guess', { roomCode: currentRoom.code, targetSocketId: selectedTarget });
+    socket.emit('make-guess', { roomId: currentRoom.code, targetSocketId: selectedTarget });
   };
 
   const handleNextRound = () => {
-    socket.emit('next-round', { roomCode: currentRoom.code });
+    socket.emit('next-round', { roomId: currentRoom.code });
   };
 
   const handleNextSession = () => {
-    socket.emit('next-session', { roomCode: currentRoom.code });
+    socket.emit('next-session', { roomId: currentRoom.code });
   };
 
   const handleSendMessage = (e) => {
-  e.preventDefault();
+    e.preventDefault();
 
-  if (!newMessage.trim() || !currentRoom) return;
+    if (!newMessage.trim() || !currentRoom) return;
 
-  socket.emit('send-message', {
-    roomId: currentRoom.code,
-    message: newMessage.trim()
-  });
+    socket.emit('send-message', {
+      roomId: currentRoom.code,
+      message: newMessage.trim()
+    });
 
-  setNewMessage('');
-};
+    setNewMessage('');
+  };
 
   const handleHostMutePlayer = (targetSocketId) => {
     const isCurrentlyMuted = mutedPlayers[targetSocketId];
     if (isCurrentlyMuted) {
-      socket.emit('host-unmute-player', { roomCode: currentRoom.code, targetSocketId });
+      socket.emit('host-unmute-player', { roomId: currentRoom.code, targetSocketId });
     } else {
-      socket.emit('host-mute-player', { roomCode: currentRoom.code, targetSocketId });
+      socket.emit('host-mute-player', { roomId: currentRoom.code, targetSocketId });
     }
   };
 
   const handleHostMuteAll = () => {
-    socket.emit('host-mute-all', { roomCode: currentRoom.code });
+    socket.emit('host-mute-all', { roomId: currentRoom.code });
   };
 
   const handleHostUnmuteAll = () => {
-    socket.emit('host-unmute-all', { roomCode: currentRoom.code });
+    socket.emit('host-unmute-all', { roomId: currentRoom.code });
   };
 
   const getRolePoints = (role) => {
@@ -350,10 +348,6 @@ function App() {
       default: return 0;
     }
   };
-
-  // -------------------------------------------------------------
-  // RENDERING
-  // -------------------------------------------------------------
 
   // Lobby Entry Screen
   if (gameState === 'lobby' && !currentRoom) {
@@ -472,7 +466,8 @@ function App() {
               <button
                 className="btn btn-primary"
                 onClick={handleStartGame}
-                disabled={currentRoom.players.filter(p => !p.isSpectator).length !== 4}              >
+                disabled={currentRoom.players.filter(p => !p.isSpectator).length !== 4}
+              >
                 {currentRoom.players.filter(p => !p.isSpectator).length === 4
                   ? '🚀 Start Game'
                   : 'Waiting for 4 Players...'}
@@ -577,48 +572,47 @@ function App() {
           <h3>Players Board</h3>
           <div className="players-grid">
             {currentRoom?.players
-  .filter(p => !p.isSpectator)
-  .map((p) => {
-              const isMe = p.id === socket.id;
-              const isWazir = socket.id === wazirSocketId;
-              const isTargetable = isWazir && !isMe && !roundEnded;
-              const isSpeaking = speakingPlayers[p.peerId];
-              const isMuted = mutedPlayers[p.id];
+              .filter(p => !p.isSpectator)
+              .map((p) => {
+                const isMe = p.id === socket.id;
+                const isWazir = socket.id === wazirSocketId;
+                const isTargetable = isWazir && !isMe && !roundEnded;
+                const isSpeaking = speakingPlayers[p.peerId];
+                const isMuted = mutedPlayers[p.id];
 
-              return (
-                <div
-                  key={p.id}
-                  className={`player-card ${selectedTarget === p.id ? 'selected' : ''} ${isSpeaking ? 'speaking' : ''
-                    }`}
-                  onClick={() => isTargetable && setSelectedTarget(p.id)}
-                >
-                  <div className="player-card-header">
-                    <span className="player-name">
-                      {p.name} {isMe ? '(You)' : ''}
-                    </span>
-                    {isMuted && <span className="muted-icon">🔇</span>}
+                return (
+                  <div
+                    key={p.id}
+                    className={`player-card ${selectedTarget === p.id ? 'selected' : ''} ${isSpeaking ? 'speaking' : ''}`}
+                    onClick={() => isTargetable && setSelectedTarget(p.id)}
+                  >
+                    <div className="player-card-header">
+                      <span className="player-name">
+                        {p.name} {isMe ? '(You)' : ''}
+                      </span>
+                      {isMuted && <span className="muted-icon">🔇</span>}
+                    </div>
+
+                    <div className="player-score">Total Score: {p.score || 0}</div>
+
+                    {roundEnded && p.role && (
+                      <div className="player-role-revealed">Role: {p.role}</div>
+                    )}
+
+                    {currentRoom?.host === socket.id && !isMe && (
+                      <button
+                        className="btn-link"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleHostMutePlayer(p.id);
+                        }}
+                      >
+                        {isMuted ? 'Unmute' : 'Mute'}
+                      </button>
+                    )}
                   </div>
-
-                  <div className="player-score">Total Score: {p.score || 0}</div>
-
-                  {roundEnded && p.role && (
-                    <div className="player-role-revealed">Role: {p.role}</div>
-                  )}
-
-                  {currentRoom?.host === socket.id && !isMe && (
-                    <button
-                      className="btn-link"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleHostMutePlayer(p.id);
-                      }}
-                    >
-                      {isMuted ? 'Unmute' : 'Mute'}
-                    </button>
-                  )}
-                </div>
-              );
-            })}
+                );
+              })}
           </div>
 
           {/* Wazir Action Controls */}
