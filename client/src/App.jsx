@@ -773,9 +773,44 @@ export default function App() {
                   ))}
               </ul>
             </div>
-            <button className="btn btn-primary" onClick={handleNextSession}>
-              Start Next Session 🔄
-            </button>
+            {gameState === 'SESSION_OVER' && sessionWinners.length > 0 && (
+              <div className="modal-overlay">
+                <div className="modal">
+                  <h2>🏆 Game Session Over!</h2>
+
+                  <h3 className="winner-title">
+                    Winner: {sessionWinners.join(', ')}
+                  </h3>
+
+                  <div className="leaderboard">
+                    <h4>Final Scores</h4>
+                    <ul>
+                      {currentRoom?.players
+                        ?.filter((p) => !p.isSpectator)
+                        .map((player) => (
+                          <li key={player.id}>
+                            <span>{player.name}</span>
+                            <strong>{scores[player.id] || 0} pts</strong>
+                          </li>
+                        ))}
+                    </ul>
+                  </div>
+
+                  {isHost ? (
+                    <button
+                      className="btn btn-primary"
+                      onClick={handleNextSession}
+                    >
+                      Start Next Session 🔄
+                    </button>
+                  ) : (
+                    <p className="waiting-text">
+                      ⏳ Waiting for the host to start the next session...
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
