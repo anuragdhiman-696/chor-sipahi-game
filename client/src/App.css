@@ -424,3 +424,54 @@ input:focus {
   margin-bottom: 6px;
   border-radius: 6px;
 }
+
+/* Spectator Mode */
+.spectator-mode-banner {
+  width: 100%;
+  max-width: 700px;
+  margin: 10px auto 20px;
+  padding: 14px 18px;
+  text-align: center;
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid #3b82f6;
+  border-radius: 10px;
+  color: #60a5fa;
+  font-weight: 700;
+}
+
+.spectator-mode-banner small {
+  display: block;
+  margin-top: 6px;
+  color: #94a3b8;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+.spectator-card {
+  width: 200px;
+  min-height: 180px;
+  text-align: center;
+  border: 1px solid #3b82f6;
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.spectator-card h3 {
+  color: #60a5fa;
+  margin-bottom: 12px;
+}
+
+.spectator-card p {
+  color: #94a3b8;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+
+.spectator-badge {
+  font-size: 0.75rem;
+  background: #334155;
+  color: #60a5fa;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: bold;
+}

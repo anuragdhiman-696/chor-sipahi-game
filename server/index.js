@@ -146,18 +146,15 @@ io.on('connection', (socket) => {
     socket.emit('chat-history', room.chatMessages);
     io.to(cleanRoomId).emit('player-joined', { player: playerObj, room });
 
-    // Auto-start game if 4 main players exist and in WAITING state
-    const activePlayers = room.players.filter(p => !p.isSpectator);
-    if (activePlayers.length === 4 && room.gameState === 'WAITING') {
-      startNewRound(cleanRoomId);
-    }
-  });
+    // Keep the room in WAITING state until the host manually starts the game.
+    // The 5th+ players are spectators and do not affect the 4-player requirement.
 
   // Explicit Host Game Start Trigger
   socket.on('start-game', ({ roomId }) => {
     const room = rooms.get(roomId);
-    if (!room || socket.id !== room.host) return;
+const currentPlayer = room?.players.find(p => p.id === socket.id);
 
+if (!room || !currentPlayer || currentPlayer.isSpectator || socket.id !== room.host) return;
     const activePlayers = room.players.filter(p => !p.isSpectator);
     if (activePlayers.length !== 4) {
       return socket.emit('error-message', 'Exactly 4 active players are required to start.');
@@ -168,8 +165,14 @@ io.on('connection', (socket) => {
 
   // Gameplay Guess Logic
   socket.on('makeGuess', ({ roomId, guessedPlayerId }) => {
-    const room = rooms.get(roomId);
-    if (!room || room.gameState !== 'GUESSING') return;
+  const room = rooms.get(roomId);
+  if (!room || room.gameState !== 'GUESSING') return;
+
+  const currentPlayer = room.players.find(p => p.id === socket.id);
+
+  if (!currentPlayer || currentPlayer.isSpectator) {
+    return socket.emit('error-message', 'Spectators cannot make guesses.');
+  }
 
     const wazirId = Object.keys(room.roles).find(id => room.roles[id] === 'Wazir');
     const chorId = Object.keys(room.roles).find(id => room.roles[id] === 'Chor');
@@ -225,12 +228,15 @@ io.on('connection', (socket) => {
 
   // Proceed to Next Round
   socket.on('nextRound', ({ roomId }) => {
-    const room = rooms.get(roomId);
-    if (room && room.gameState === 'ROUND_OVER') {
-      room.currentRound += 1;
-      startNewRound(roomId);
-    }
-  });
+  const room = rooms.get(roomId);
+
+  if (!room || socket.id !== room.host) return;
+
+  if (room.gameState === 'ROUND_OVER') {
+    room.currentRound += 1;
+    startNewRound(roomId);
+  }
+});
 
   // Reset Session
   socket.on('nextSession', ({ roomId }) => {
@@ -384,4 +390,4 @@ app.get('*', (req, res) => {
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`Chor Sipahi Game Server running on port ${PORT}`);
-});
+})});

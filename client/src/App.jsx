@@ -333,7 +333,13 @@ export default function App() {
   };
 
   const isWazir = myRole === 'Wazir';
-  const isHost = currentRoom?.host === socket.id;
+const isHost = currentRoom?.host === socket.id;
+
+const currentPlayer = currentRoom?.players?.find(
+  (p) => p.id === socket.id
+);
+
+const isSpectator = currentPlayer?.isSpectator === true;
 
   // Reusable Connection Status Indicator Bar
   const renderConnectionBar = () => (
@@ -414,24 +420,60 @@ export default function App() {
     return (
       <div className="container center">
         {renderConnectionBar()}
-        <h2>Room Code: <span className="highlight">{currentRoom?.code}</span></h2>
+        <h2>
+  Room Code: <span className="highlight">{currentRoom?.code}</span>
+</h2>
+
+{isSpectator && (
+  <div className="spectator-mode-banner">
+    👁 You are watching as a spectator
+    <br />
+    <small>
+      The 4 player slots are full. You can watch the game and use chat,
+      but you cannot participate.
+    </small>
+  </div>
+)}
         <div className="card">
-          <h3>
-            Players ({activePlayers.length}/4)
-            {currentRoom?.players?.some((p) => p.isSpectator) &&
-              ` • Spectators: ${currentRoom.players.filter((p) => p.isSpectator).length}`}
-          </h3>
-          <ul className="lobby-player-list">
-            {currentRoom?.players?.map((p) => (
-              <li key={p.id} className="lobby-player-item">
-                <span>
-                  {p.name} {p.id === socket.id ? '(You)' : ''}
-                  {p.isSpectator && <span className="spectator-badge"> 👁 Spectator</span>}
-                </span>
-                {p.id === currentRoom.host && <span className="host-badge">👑 Host</span>}
-              </li>
-            ))}
-          </ul>
+          <h3>🎮 Players ({activePlayers.length}/4)</h3>
+
+<ul className="lobby-player-list">
+  {activePlayers.map((p) => (
+    <li key={p.id} className="lobby-player-item">
+      <span>
+        {p.name} {p.id === socket.id ? '(You)' : ''}
+      </span>
+
+      {p.id === currentRoom.host && (
+        <span className="host-badge">👑 Host</span>
+      )}
+    </li>
+  ))}
+</ul>
+
+{currentRoom?.players?.some((p) => p.isSpectator) && (
+  <>
+    <h3 style={{ marginTop: '20px' }}>
+      👁 Spectators ({currentRoom.players.filter((p) => p.isSpectator).length})
+    </h3>
+
+    <ul className="lobby-player-list">
+      {currentRoom.players
+        .filter((p) => p.isSpectator)
+        .map((p) => (
+          <li key={p.id} className="lobby-player-item">
+            <span>
+              {p.name} {p.id === socket.id ? '(You)' : ''}
+            </span>
+
+            <span className="spectator-badge">
+              👁 Spectator
+            </span>
+          </li>
+        ))}
+    </ul>
+  </>
+)}
 
           <div className="voice-setup">
             {!isVoiceConnected ? (
@@ -475,19 +517,27 @@ export default function App() {
             </form>
           </div>
 
-          {isHost ? (
-            <div className="host-actions">
-              <button
-                className="btn btn-primary"
-                onClick={handleStartGame}
-                disabled={activePlayers.length !== 4}
-              >
-                {activePlayers.length === 4 ? '🚀 Start Game' : 'Waiting for 4 Players...'}
-              </button>
-            </div>
-          ) : (
-            <p className="waiting-text">Waiting for the host to start the game...</p>
-          )}
+          {isSpectator ? (
+  <p className="waiting-text">
+    👁 You are a spectator. Waiting for the game to start...
+  </p>
+) : isHost ? (
+  <div className="host-actions">
+    <button
+      className="btn btn-primary"
+      onClick={handleStartGame}
+      disabled={activePlayers.length !== 4}
+    >
+      {activePlayers.length === 4
+        ? '🚀 Start Game'
+        : 'Waiting for 4 Players...'}
+    </button>
+  </div>
+) : (
+  <p className="waiting-text">
+    Waiting for the host to start the game...
+  </p>
+)}
         </div>
       </div>
     );
@@ -515,34 +565,49 @@ export default function App() {
 
       <div className="main-layout">
         {/* Chit Component */}
-        <div className="chit-section">
-          <h3>Your Secret Chit</h3>
-          <div
-            className={`chit-card ${isChitRevealed ? 'unfolded' : 'folded'}`}
-            onClick={() => myRole && setIsChitRevealed((prev) => !prev)}
-          >
-            {isChitRevealed && myRole ? (
-              <>
-                <span className="chit-stamp">ROYAL DECREE</span>
-                <span className="chit-role-title">{myRole}</span>
-              </>
-            ) : (
-              <>
-                <span className="chit-stamp">SECRET ROLE</span>
-                <span className="chit-icon">📜</span>
-                <span className="chit-hint">Tap to Unfold Chit</span>
-              </>
-            )}
-          </div>
+       <div className="chit-section">
+  {isSpectator ? (
+    <div className="card spectator-card">
+      <h3>👁 Spectator Mode</h3>
+      <p>
+        You are watching this game as a spectator.
+      </p>
+      <p>
+        You don't have a secret role or game actions.
+      </p>
+    </div>
+  ) : (
+    <>
+      <h3>Your Secret Chit</h3>
 
-          <button
-            className="btn btn-secondary"
-            style={{ marginTop: '15px' }}
-            onClick={() => setIsChitRevealed((prev) => !prev)}
-            disabled={!myRole}
-          >
-            {isChitRevealed ? 'Fold & Hide Role' : 'Reveal Role'}
-          </button>
+      <div
+        className={`chit-card ${isChitRevealed ? 'unfolded' : 'folded'}`}
+        onClick={() => myRole && setIsChitRevealed((prev) => !prev)}
+      >
+        {isChitRevealed && myRole ? (
+          <>
+            <span className="chit-stamp">ROYAL DECREE</span>
+            <span className="chit-role-title">{myRole}</span>
+          </>
+        ) : (
+          <>
+            <span className="chit-stamp">SECRET ROLE</span>
+            <span className="chit-icon">📜</span>
+            <span className="chit-hint">Tap to Unfold Chit</span>
+          </>
+        )}
+      </div>
+
+      <button
+        className="btn btn-secondary"
+        style={{ marginTop: '15px' }}
+        onClick={() => setIsChitRevealed((prev) => !prev)}
+        disabled={!myRole}
+      >
+        {isChitRevealed ? 'Fold & Hide Role' : 'Reveal Role'}
+      </button>
+    </>
+  )}
 
           {/* Voice Sidebar */}
           <div className="voice-controls-panel">
@@ -555,7 +620,7 @@ export default function App() {
               <button
                 className={`btn btn-sm ${isSelfMuted ? 'btn-danger' : 'btn-success'}`}
                 onClick={toggleSelfMute}
-              >
+                >
                 {isSelfMuted ? 'Unmute Mic' : 'Mute Mic'}
               </button>
             )}
@@ -573,6 +638,16 @@ export default function App() {
                 const canTarget = isWazir && !isMe && gameState === 'GUESSING';
                 const showRole = gameState !== 'GUESSING' || isMe;
                 const isMuted = mutedPlayers[p.id];
+                
+                {/* Wazir Guess Control */}
+                {!isSpectator && isWazir && gameState === 'GUESSING' &&(
+                  <div className="wazir-controls">
+                    <p>You are the <strong>Wazir</strong>! Select a player and guess who holds the <strong>Chor</strong> role.</p>
+                    <button className="btn btn-primary" onClick={handleMakeGuess} disabled={!selectedTarget}>
+                      Confirm Guess
+                    </button>
+                  </div>
+                )}
 
                 return (
                   <div
@@ -606,18 +681,9 @@ export default function App() {
               })}
           </div>
 
-          {/* Wazir Guess Control */}
-          {isWazir && gameState === 'GUESSING' && (
-            <div className="wazir-controls">
-              <p>You are the <strong>Wazir</strong>! Select a player and guess who holds the <strong>Chor</strong> role.</p>
-              <button className="btn btn-primary" onClick={handleMakeGuess} disabled={!selectedTarget}>
-                Confirm Guess
-              </button>
-            </div>
-          )}
 
           {/* Round Controls */}
-          {gameState === 'ROUND_OVER' && (
+          {gameState === 'ROUND_OVER' && isHost && (
             <div className="host-controls">
               <button className="btn btn-primary" onClick={handleNextRound}>
                 Next Round ➔
