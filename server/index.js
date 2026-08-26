@@ -107,7 +107,20 @@ io.on('connection', (socket) => {
     room.players.push(playerObj);
     socket.join(cleanRoomId);
 
+    const joinMessage = {
+  system: true,
+  text: `${playerObj.name} joined the room.`,
+  timestamp: new Date().toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+};
+
+room.chatMessages.push(joinMessage);
+io.to(cleanRoomId).emit('receive-message', joinMessage);
+
     socket.emit('room-joined', { roomId: cleanRoomId, room });
+    socket.emit('chat-history', room.chatMessages);
     io.to(cleanRoomId).emit('player-joined', { player: playerObj, room });
   });
 
@@ -250,6 +263,49 @@ io.on('connection', (socket) => {
       player.role = roles[player.id];
     });
 
+    socket.on('make-guess', ({ roomId, targetSocketId }) => {
+  const room = rooms.get(roomId);
+
+  if (!room) return;
+
+  // Only the current Wazir can make the guess
+  if (!room.gameData || socket.id !== room.gameData.wazirId) {
+    return socket.emit('error-message', 'Only the Wazir can make the guess.');
+  }
+
+  const target = room.players.find(p => p.id === targetSocketId);
+
+  if (!target || target.isSpectator) {
+    return socket.emit('error-message', 'Invalid player selected.');
+  }
+
+  const chor = room.players.find(p => p.role === 'Chor');
+
+  if (!chor) {
+    return socket.emit('error-message', 'Chor role was not assigned.');
+  }
+
+  const correct = targetSocketId === chor.id;
+
+  const result = {
+    correct,
+    wazirName: room.players.find(p => p.id === socket.id)?.name || 'Wazir',
+    chorName: chor.name
+  };
+
+  // Reveal roles after the guess
+  room.players.forEach(player => {
+    player.role = player.role;
+  });
+
+  room.gameState = 'round_end';
+
+  io.to(roomId).emit('round-over', {
+    room,
+    result
+  });
+});
+
     room.gameState = 'playing';
 
     const wazirId = shuffledPlayers[1].id;
@@ -265,6 +321,19 @@ io.on('connection', (socket) => {
     rooms.forEach((room, roomId) => {
       const playerIndex = room.players.findIndex(p => p.id === socket.id);
       if (playerIndex !== -1) {
+        const leavingPlayer = room.players[playerIndex];
+
+const leaveMessage = {
+  system: true,
+  text: `${leavingPlayer.name} left the room.`,
+  timestamp: new Date().toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+};
+
+room.chatMessages.push(leaveMessage);
+io.to(roomId).emit('receive-message', leaveMessage);
         room.players.splice(playerIndex, 1);
         delete room.voiceStates[socket.id];
 

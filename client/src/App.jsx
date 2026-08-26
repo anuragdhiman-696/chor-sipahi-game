@@ -46,6 +46,10 @@ function App() {
   // SOCKET.IO EVENT LISTENERS & GAME STATE MANAGEMENT
   // -------------------------------------------------------------
   useEffect(() => {
+    socket.on('chat-history', (messages) => {
+  setChatMessages(messages || []);
+});
+
     socket.on('connect', () => {
       console.log('Connected to socket server:', socket.id);
     });
@@ -143,6 +147,7 @@ function App() {
       socket.off('error-message');
       socket.off('voice-state-updated');
       socket.off('force-host-mute');
+      socket.off('chat-history');
     };
   }, []);
 
@@ -185,7 +190,7 @@ function App() {
       peer.on('open', (id) => {
         setPeerId(id);
         setIsVoiceConnected(true);
-       socket.emit('join-voice', { roomId: currentRoom.code, peerId: id });
+        socket.emit('join-voice', { roomId: currentRoom.code, peerId: id });
       });
 
       peer.on('call', (call) => {
@@ -271,7 +276,8 @@ function App() {
       audioTrack.enabled = !audioTrack.enabled;
       const mutedState = !audioTrack.enabled;
       setIsSelfMuted(mutedState);
-      socket.emit('voice-mute-self', { roomId: currentRoom?.code, selfMuted: mutedState });    }
+      socket.emit('voice-mute-self', { roomId: currentRoom?.code, selfMuted: mutedState });
+    }
   };
 
   // -------------------------------------------------------------
@@ -288,9 +294,9 @@ function App() {
   };
 
   const handleStartGame = () => {
-  if (currentRoom?.players?.length !== 4) return alert('Exactly 4 players are required to start.');
-  socket.emit('start-game', { roomId: currentRoom.code });
-};
+    if (currentRoom?.players?.length !== 4) return alert('Exactly 4 players are required to start.');
+    socket.emit('start-game', { roomId: currentRoom.code });
+  };
 
   const handleMakeGuess = () => {
     if (!selectedTarget) return alert('Select a player to guess as Chor!');
@@ -306,10 +312,17 @@ function App() {
   };
 
   const handleSendMessage = (e) => {
-    e.preventDefault();
-    if (!newMessage.trim() || !currentRoom) return;
-    socket.emit('send-message', { roomId: currentRoom.code, message: newMessage });    setNewMessage('');
-  };
+  e.preventDefault();
+
+  if (!newMessage.trim() || !currentRoom) return;
+
+  socket.emit('send-message', {
+    roomId: currentRoom.code,
+    message: newMessage.trim()
+  });
+
+  setNewMessage('');
+};
 
   const handleHostMutePlayer = (targetSocketId) => {
     const isCurrentlyMuted = mutedPlayers[targetSocketId];
@@ -386,11 +399,20 @@ function App() {
       <div className="container center">
         <h2>Room Code: <span className="highlight">{currentRoom.code}</span></h2>
         <div className="card">
-          <h3>Connected Players ({currentRoom.players.length}/4)</h3>
+          <h3>
+            Players ({currentRoom.players.filter(p => !p.isSpectator).length}/4)
+            {currentRoom.players.some(p => p.isSpectator) &&
+              ` • Spectators: ${currentRoom.players.filter(p => p.isSpectator).length}`}
+          </h3>
           <ul className="lobby-player-list">
             {currentRoom.players.map((p) => (
               <li key={p.id} className="lobby-player-item">
-                <span>{p.name} {p.id === socket.id ? '(You)' : ''}</span>
+                <span>
+                  {p.name} {p.id === socket.id ? '(You)' : ''}
+                  {p.isSpectator && (
+                    <span className="spectator-badge"> 👁 Spectator</span>
+                  )}
+                </span>
                 {p.id === currentRoom.host && <span className="host-badge">👑 Host</span>}
               </li>
             ))}
@@ -408,14 +430,52 @@ function App() {
             )}
           </div>
 
+          <div className="chat-box lobby-chat">
+            <h3>💬 Room Chat</h3>
+
+            <div className="chat-messages">
+              {chatMessages.map((msg, index) => (
+                <div
+                  key={index}
+                  className={`chat-message ${msg.system ? 'system-message' : ''}`}
+                >
+                  {msg.system ? (
+                    <em>{msg.text}</em>
+                  ) : (
+                    <>
+                      <strong>{msg.sender}: </strong>
+                      <span>{msg.text}</span>
+                    </>
+                  )}
+                </div>
+              ))}
+
+              <div ref={chatBottomRef} />
+            </div>
+
+            <form onSubmit={handleSendMessage} className="chat-input-form">
+              <input
+                type="text"
+                placeholder="Type a message..."
+                value={newMessage}
+                onChange={(e) => setNewMessage(e.target.value)}
+              />
+
+              <button type="submit" className="btn btn-primary btn-sm">
+                Send
+              </button>
+            </form>
+          </div>
+
           {isHost ? (
             <div className="host-actions">
               <button
                 className="btn btn-primary"
                 onClick={handleStartGame}
-                disabled={currentRoom.players.length !== 4}
-              >
-                {currentRoom.players.length === 4 ? '🚀 Start Game' : 'Waiting for 4 Players...'}
+                disabled={currentRoom.players.filter(p => !p.isSpectator).length !== 4}              >
+                {currentRoom.players.filter(p => !p.isSpectator).length === 4
+                  ? '🚀 Start Game'
+                  : 'Waiting for 4 Players...'}
               </button>
             </div>
           ) : (
@@ -516,7 +576,9 @@ function App() {
         <div className="players-section">
           <h3>Players Board</h3>
           <div className="players-grid">
-            {currentRoom?.players.map((p) => {
+            {currentRoom?.players
+  .filter(p => !p.isSpectator)
+  .map((p) => {
               const isMe = p.id === socket.id;
               const isWazir = socket.id === wazirSocketId;
               const isTargetable = isWazir && !isMe && !roundEnded;
