@@ -5,7 +5,7 @@ import './App.css';
 
 const SOCKET_SERVER_URL = 'https://chor-sipahi-game.onrender.com';
 
-const socket = io(SOCKET_SERVER_URL, {
+const socket = io(SOCKET_SERVER_URL, { 
   autoConnect: true,
   reconnection: true,
   reconnectionAttempts: 50,
@@ -50,7 +50,7 @@ export default function App() {
   const [sessionWinner, setSessionWinner] = useState(null);
   const [roundEnded, setRoundEnded] = useState(false);
 
-  // New Wazir & Spectator Engine States
+  // Wazir & Spectator Engine States
   const [isSpectator, setIsSpectator] = useState(false);
   const [roundStatus, setRoundStatus] = useState('WAITING'); // 'WAITING', 'WAZIR_GUESSING', 'ROUND_OVER'
   const [wazirSocketId, setWazirSocketId] = useState(null);
@@ -129,8 +129,9 @@ export default function App() {
       setSelectedTarget(null);
       setWazirSocketId(wazirId);
 
-      if (roles && roles[socket.id]) {
-        setMyRole(roles[socket.id]);
+      if (roles) {
+        const assignedRole = roles[socket.id];
+        setMyRole(assignedRole || null);
       }
     });
 
@@ -139,7 +140,10 @@ export default function App() {
       setSession(currentSession);
       setRoundStatus('WAZIR_GUESSING');
       if (updatedScores) setScores(updatedScores);
-      if (roles && roles[socket.id]) setMyRole(roles[socket.id]);
+      if (roles) {
+        const assignedRole = roles[socket.id];
+        setMyRole(assignedRole || null);
+      }
       setWazirSocketId(wazirId);
       setIsChitRevealed(false);
       setRoundEnded(false);
@@ -455,7 +459,7 @@ export default function App() {
   };
 
   const getRolePoints = (role) => {
-    switch (role) {
+    switch(role) {
       case 'Raja': return 1000;
       case 'Wazir': return 800;
       case 'Sipahi': return 500;
@@ -485,10 +489,10 @@ export default function App() {
           <h2>Join Game</h2>
           <div className="input-group">
             <label>Your Name</label>
-            <input
-              type="text"
-              placeholder="Enter name..."
-              value={playerName}
+            <input 
+              type="text" 
+              placeholder="Enter name..." 
+              value={playerName} 
               onChange={(e) => setPlayerName(e.target.value)}
             />
           </div>
@@ -498,10 +502,10 @@ export default function App() {
             </button>
             <div className="divider">OR</div>
             <div className="join-group">
-              <input
-                type="text"
-                placeholder="Room Code"
-                value={roomIdInput}
+              <input 
+                type="text" 
+                placeholder="Room Code" 
+                value={roomIdInput} 
                 onChange={(e) => setRoomIdInput(e.target.value.toUpperCase())}
               />
               <button className="btn btn-secondary" onClick={handleJoinRoom} disabled={!isConnected}>
@@ -534,8 +538,8 @@ export default function App() {
                   </button>
                 ) : (
                   <div className="voice-controls">
-                    <button
-                      className={`btn ${selfMuted || hostMuted ? 'btn-muted' : 'btn-unmuted'}`}
+                    <button 
+                      className={`btn ${selfMuted || hostMuted ? 'btn-muted' : 'btn-unmuted'}`} 
                       onClick={toggleSelfMute}
                       disabled={hostMuted}
                     >
@@ -578,9 +582,12 @@ export default function App() {
                       <p className="subtext">Tap the paper chit below to fold / unfold it!</p>
 
                       <div className="chit-wrapper">
-                        <div
+                        <div 
                           className={`chit-card ${isChitRevealed ? 'unfolded' : 'folded'}`}
-                          onClick={() => myRole && setIsChitRevealed(!isChitRevealed)}
+                          onClick={() => {
+                            if (!myRole) return;
+                            setIsChitRevealed(!isChitRevealed);
+                          }}
                         >
                           {isChitRevealed && myRole ? (
                             <>
@@ -600,11 +607,15 @@ export default function App() {
                         </div>
                       </div>
 
-                      <button
-                        className="btn btn-secondary"
-                        onClick={() => setIsChitRevealed(!isChitRevealed)}
+                      <button 
+                        className="btn btn-secondary" 
+                        onClick={() => {
+                          if (!myRole) return;
+                          setIsChitRevealed(!isChitRevealed);
+                        }}
+                        disabled={!myRole}
                       >
-                        {isChitRevealed ? 'Fold & Hide Role' : 'Reveal Role'}
+                        {!myRole ? 'Role Not Assigned' : isChitRevealed ? 'Fold & Hide Role' : 'Reveal Role'}
                       </button>
                     </>
                   )}
@@ -693,8 +704,8 @@ export default function App() {
               {isHost && (
                 <div className="lobby-actions" style={{ marginTop: '20px' }}>
                   {gameState === 'lobby' && (
-                    <button
-                      className="btn btn-primary btn-large"
+                    <button 
+                      className="btn btn-primary btn-large" 
                       onClick={handleStartGame}
                       disabled={currentRoom.players.length < 4}
                     >
@@ -729,10 +740,10 @@ export default function App() {
               ))}
             </div>
             <form onSubmit={handleSendMessage} className="chat-input-form">
-              <input
-                type="text"
-                placeholder="Type a message..."
-                value={newMessage}
+              <input 
+                type="text" 
+                placeholder="Type a message..." 
+                value={newMessage} 
                 onChange={(e) => setNewMessage(e.target.value)}
               />
               <button type="submit" className="btn btn-primary">Send</button>
