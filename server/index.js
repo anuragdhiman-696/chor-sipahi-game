@@ -10,11 +10,15 @@ app.use(cors());
 // Serve static frontend in production
 app.use(express.static(path.join(__dirname, '../client/dist')));
 
-const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
+    origin: [
+      'https://chor-sipahi-game-nine.vercel.app',
+      'http://localhost:5173',
+      'http://localhost:3000'
+    ],
+    methods: ['GET', 'POST'],
+    credentials: true
   }
 });
 
