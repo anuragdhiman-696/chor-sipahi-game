@@ -133,7 +133,7 @@ export default function App() {
     return () => cleanupVoice();
   }, []);
 
-const joinVoiceChannel = async () => {
+  const joinVoiceChannel = async () => {
     if (voiceJoined) return;
     setVoiceError('');
 
@@ -184,66 +184,6 @@ const joinVoiceChannel = async () => {
       setVoiceError('Microphone permission denied by Android.');
       return;
     }
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-        video: false
-      });
-
-      localStreamRef.current = stream;
-      setupAudioAnalyser(stream);
-
-      const peer = new Peer(undefined, PEER_CONFIG);
-      peerRef.current = peer;
-
-      peer.on('open', (peerId) => {
-        setVoiceJoined(true);
-        socket.emit('join-voice', { roomId: currentRoom.id, peerId });
-      });
-
-      peer.on('call', (call) => {
-        call.answer(localStreamRef.current);
-        call.on('stream', (remoteStream) => attachRemoteStream(call.metadata?.socketId, remoteStream));
-        call.on('close', () => cleanupCall(call.metadata?.socketId));
-        call.on('error', () => cleanupCall(call.metadata?.socketId));
-      });
-
-      peer.on('error', (err) => {
-        console.error('PeerJS Error:', err);
-        setVoiceError('Voice connection error.');
-      });
-
-      socket.on('voice-participants', (participants) => {
-        participants.forEach(({ socketId, peerId }) => {
-          if (peerId && localStreamRef.current) {
-            const call = peer.call(peerId, localStreamRef.current, { metadata: { socketId: socket.id } });
-            if (call) {
-              peerCallsRef.current[socketId] = call;
-              call.on('stream', (remoteStream) => attachRemoteStream(socketId, remoteStream));
-              call.on('close', () => cleanupCall(socketId));
-              call.on('error', () => cleanupCall(socketId));
-            }
-          }
-        });
-      });
-
-      socket.on('user-connected-voice', ({ socketId, peerId }) => {
-        if (peerId && localStreamRef.current && peerRef.current) {
-          const call = peerRef.current.call(peerId, localStreamRef.current, { metadata: { socketId: socket.id } });
-          if (call) {
-            peerCallsRef.current[socketId] = call;
-            call.on('stream', (remoteStream) => attachRemoteStream(socketId, remoteStream));
-            call.on('close', () => cleanupCall(socketId));
-            call.on('error', () => cleanupCall(socketId));
-          }
-        }
-      });
-    } catch (err) {
-      console.error('Microphone Error:', err);
-      setVoiceError('Microphone permission denied.');
-    }
-  };
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
