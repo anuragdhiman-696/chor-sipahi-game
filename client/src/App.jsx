@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import io from 'socket.io-client';
 import Peer from 'peerjs';
+import './index.css';
 
 const SOCKET_SERVER_URL = 'https://chor-sipahi-game.onrender.com';
 
