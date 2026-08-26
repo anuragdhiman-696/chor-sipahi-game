@@ -5,31 +5,29 @@
     <author email="dev@example.com" href="http://cordova.io">Developer</author>
     <content src="index.html" />
 
-    <!-- Navigation & Access Policies -->
+    <!-- Access Policies -->
     <access origin="*" />
     <allow-navigation href="*" />
     <allow-intent href="*" />
 
-    <!-- Application Icon -->
-    <icon src="res/icon.png" />
+    <!-- Android Specific Preferences -->
+    <preference name="MediaPlaybackRequiresUserAction" value="false" />
+    <preference name="GrantPermissions" value="true" />
 
     <plugin name="cordova-plugin-android-permissions" spec="^1.1.5" />
 
     <platform name="android">
-        <icon src="res/icon.png" />
-
-        <!-- Merge Cleartext Traffic Attribute into AndroidManifest -->
         <edit-config file="AndroidManifest.xml" mode="merge" target="/manifest/application">
             <application android:usesCleartextTraffic="true" />
         </edit-config>
 
-        <!-- Inject Required Android Permissions -->
         <config-file target="AndroidManifest.xml" parent="/manifest">
             <uses-permission android:name="android.permission.INTERNET" />
             <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
             <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
             <uses-permission android:name="android.permission.RECORD_AUDIO" />
             <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+            <uses-permission android:name="android.permission.AUDIO_CAPTURE" />
         </config-file>
     </platform>
 </widget>

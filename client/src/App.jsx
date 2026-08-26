@@ -137,34 +137,113 @@ const joinVoiceChannel = async () => {
     if (voiceJoined) return;
     setVoiceError('');
 
-    // Native Cordova Runtime Permission Check
-    if (window.cordova && window.cordova.plugins && window.cordova.plugins.permissions) {
-      const permissions = window.cordova.plugins.permissions;
-      const permissionName = permissions.RECORD_AUDIO;
+    // Utility helper to request Android permissions via Cordova
+    const requestNativePermission = () => {
+      return new Promise((resolve) => {
+        if (window.cordova && window.cordova.plugins && window.cordova.plugins.permissions) {
+          const permissions = window.cordova.plugins.permissions;
+          const permissionName = permissions.RECORD_AUDIO;
 
-      const hasPermission = await new Promise((resolve) => {
-        permissions.checkPermission(
-          permissionName,
-          (status) => resolve(status.hasPermission),
-          () => resolve(false)
-        );
-      });
-
-      if (!hasPermission) {
-        const granted = await new Promise((resolve) => {
-          permissions.requestPermission(
+          permissions.checkPermission(
             permissionName,
-            (status) => resolve(status.hasPermission),
+            (status) => {
+              if (status.hasPermission) {
+                resolve(true);
+              } else {
+                permissions.requestPermission(
+                  permissionName,
+                  (reqStatus) => resolve(reqStatus.hasPermission),
+                  () => resolve(false)
+                );
+              }
+            },
             () => resolve(false)
           );
-        });
-
-        if (!granted) {
-          setVoiceError('Microphone permission denied by user.');
-          return;
+        } else {
+          // Fallback for desktop browsers
+          resolve(true);
         }
-      }
+      });
+    };
+
+    // Ensure deviceready has fired if running inside Cordova
+    if (window.cordova) {
+      await new Promise((resolve) => {
+        if (window.deviceReadyFired) {
+          resolve();
+        } else {
+          document.addEventListener('deviceready', resolve, { once: true });
+          // Safety timeout in case event already passed
+          setTimeout(resolve, 1000);
+        }
+      });
     }
+
+    const nativePermissionGranted = await requestNativePermission();
+    if (!nativePermissionGranted) {
+      setVoiceError('Microphone permission denied by Android.');
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        video: false
+      });
+
+      localStreamRef.current = stream;
+      setupAudioAnalyser(stream);
+
+      const peer = new Peer(undefined, PEER_CONFIG);
+      peerRef.current = peer;
+
+      peer.on('open', (peerId) => {
+        setVoiceJoined(true);
+        socket.emit('join-voice', { roomId: currentRoom.id, peerId });
+      });
+
+      peer.on('call', (call) => {
+        call.answer(localStreamRef.current);
+        call.on('stream', (remoteStream) => attachRemoteStream(call.metadata?.socketId, remoteStream));
+        call.on('close', () => cleanupCall(call.metadata?.socketId));
+        call.on('error', () => cleanupCall(call.metadata?.socketId));
+      });
+
+      peer.on('error', (err) => {
+        console.error('PeerJS Error:', err);
+        setVoiceError('Voice connection error.');
+      });
+
+      socket.on('voice-participants', (participants) => {
+        participants.forEach(({ socketId, peerId }) => {
+          if (peerId && localStreamRef.current) {
+            const call = peer.call(peerId, localStreamRef.current, { metadata: { socketId: socket.id } });
+            if (call) {
+              peerCallsRef.current[socketId] = call;
+              call.on('stream', (remoteStream) => attachRemoteStream(socketId, remoteStream));
+              call.on('close', () => cleanupCall(socketId));
+              call.on('error', () => cleanupCall(socketId));
+            }
+          }
+        });
+      });
+
+      socket.on('user-connected-voice', ({ socketId, peerId }) => {
+        if (peerId && localStreamRef.current && peerRef.current) {
+          const call = peerRef.current.call(peerId, localStreamRef.current, { metadata: { socketId: socket.id } });
+          if (call) {
+            peerCallsRef.current[socketId] = call;
+            call.on('stream', (remoteStream) => attachRemoteStream(socketId, remoteStream));
+            call.on('close', () => cleanupCall(socketId));
+            call.on('error', () => cleanupCall(socketId));
+          }
+        }
+      });
+    } catch (err) {
+      console.error('Microphone Error:', err);
+      setVoiceError('Microphone permission denied.');
+    }
+  };
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
