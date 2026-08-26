@@ -58,10 +58,11 @@ jobs:
       - name: Install Cordova CLI
         run: npm install -g cordova@13.0.0
 
-      - name: Add Cordova Android Platform
+      - name: Add Cordova Android Platform & Plugins
         run: |
           cordova platform remove android --no-telemetry || true
           cordova platform add android@15.0.1 --no-telemetry
+          cordova plugin add cordova-plugin-android-permissions --no-telemetry
 
       - name: Build Debug APK
         run: |

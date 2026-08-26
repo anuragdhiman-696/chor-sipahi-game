@@ -133,9 +133,38 @@ export default function App() {
     return () => cleanupVoice();
   }, []);
 
-  const joinVoiceChannel = async () => {
+const joinVoiceChannel = async () => {
     if (voiceJoined) return;
     setVoiceError('');
+
+    // Native Cordova Runtime Permission Check
+    if (window.cordova && window.cordova.plugins && window.cordova.plugins.permissions) {
+      const permissions = window.cordova.plugins.permissions;
+      const permissionName = permissions.RECORD_AUDIO;
+
+      const hasPermission = await new Promise((resolve) => {
+        permissions.checkPermission(
+          permissionName,
+          (status) => resolve(status.hasPermission),
+          () => resolve(false)
+        );
+      });
+
+      if (!hasPermission) {
+        const granted = await new Promise((resolve) => {
+          permissions.requestPermission(
+            permissionName,
+            (status) => resolve(status.hasPermission),
+            () => resolve(false)
+          );
+        });
+
+        if (!granted) {
+          setVoiceError('Microphone permission denied by user.');
+          return;
+        }
+      }
+    }
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({

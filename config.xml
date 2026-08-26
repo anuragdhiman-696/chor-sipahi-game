@@ -13,6 +13,8 @@
     <!-- Application Icon -->
     <icon src="res/icon.png" />
 
+    <plugin name="cordova-plugin-android-permissions" spec="^1.1.5" />
+
     <platform name="android">
         <icon src="res/icon.png" />
 
