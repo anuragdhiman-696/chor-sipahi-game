@@ -9,6 +9,9 @@ const SOCKET_SERVER_URL = 'http://localhost:5000';
 const socket = io(SOCKET_SERVER_URL, { autoConnect: true });
 
 export default function App() {
+  // Connection State
+  const [isConnected, setIsConnected] = useState(socket.connected);
+
   // Navigation & Room State
   const [playerName, setPlayerName] = useState('');
   const [roomCode, setRoomCode] = useState('');
@@ -46,11 +49,32 @@ export default function App() {
   // SOCKET.IO LISTENERS & GAME STATE SYNC
   // -------------------------------------------------------------
   useEffect(() => {
+    // Socket Connection Listeners
+    function onConnect() {
+      setIsConnected(true);
+      console.log('Connected to server with ID:', socket.id);
+    }
+
+    function onDisconnect() {
+      setIsConnected(false);
+      console.log('Disconnected from server');
+    }
+
+    function onConnectError(err) {
+      setIsConnected(false);
+      console.error('Connection error:', err.message);
+    }
+
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
+    socket.on('connect_error', onConnectError);
+
+    // Room Listeners
     socket.on('room-created', ({ room }) => {
-  setCurrentRoom(room);
-  setGameState(room.gameState); // Set to 'WAITING' so the UI transitions to the waiting screen
-  setJoined(true);
-});
+      setCurrentRoom(room);
+      setGameState(room.gameState);
+      setJoined(true);
+    });
 
     socket.on('room-joined', ({ room }) => {
       setCurrentRoom(room);
@@ -69,6 +93,7 @@ export default function App() {
       setCurrentRoom(room);
     });
 
+    // Game Event Listeners
     socket.on('roundStarted', (data) => {
       setRoles(data.roles);
       setScores(data.scores);
@@ -138,6 +163,9 @@ export default function App() {
     });
 
     return () => {
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
+      socket.off('connect_error', onConnectError);
       socket.off();
     };
   }, []);
@@ -303,6 +331,37 @@ export default function App() {
   const isWazir = myRole === 'Wazir';
   const isHost = currentRoom?.host === socket.id;
 
+  // Reusable Connection Status Indicator Bar
+  const renderConnectionBar = () => (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '8px',
+        padding: '8px 16px',
+        backgroundColor: isConnected ? '#e6fffa' : '#ffebe9',
+        color: isConnected ? '#137333' : '#c5221f',
+        border: `1px solid ${isConnected ? '#34a853' : '#ea4335'}`,
+        borderRadius: '8px',
+        marginBottom: '20px',
+        fontWeight: 'bold',
+        fontSize: '14px',
+      }}
+    >
+      <span
+        style={{
+          height: '10px',
+          width: '10px',
+          borderRadius: '50%',
+          backgroundColor: isConnected ? '#34a853' : '#ea4335',
+          display: 'inline-block',
+        }}
+      />
+      {isConnected ? 'Server Connected' : 'Server Disconnected (Checking Connection...)'}
+    </div>
+  );
+
   // -------------------------------------------------------------
   // RENDERING VIEWS
   // -------------------------------------------------------------
@@ -311,6 +370,7 @@ export default function App() {
   if (!joined) {
     return (
       <div className="container center">
+        {renderConnectionBar()}
         <h1 className="main-title">👑 Raja Mantri Chor Sipahi</h1>
         <p className="subtitle">Real-time Multiplayer Game with Voice Chat</p>
         <div className="card">
@@ -322,7 +382,7 @@ export default function App() {
             onChange={(e) => setPlayerName(e.target.value)}
           />
           <div className="button-group">
-            <button className="btn btn-primary" onClick={handleCreateRoom}>
+            <button className="btn btn-primary" onClick={handleCreateRoom} disabled={!isConnected}>
               Create New Room
             </button>
           </div>
@@ -335,7 +395,7 @@ export default function App() {
             onChange={(e) => setRoomCode(e.target.value)}
           />
           <div className="button-group">
-            <button className="btn btn-secondary" onClick={handleJoinRoom}>
+            <button className="btn btn-secondary" onClick={handleJoinRoom} disabled={!isConnected}>
               Join Room
             </button>
           </div>
@@ -349,6 +409,7 @@ export default function App() {
     const activePlayers = currentRoom?.players?.filter((p) => !p.isSpectator) || [];
     return (
       <div className="container center">
+        {renderConnectionBar()}
         <h2>Room Code: <span className="highlight">{currentRoom?.code}</span></h2>
         <div className="card">
           <h3>
@@ -431,6 +492,7 @@ export default function App() {
   // 3. Main Gameplay Board
   return (
     <div className="container">
+      {renderConnectionBar()}
       <header className="header">
         <div>
           <h2>Raja Mantri Chor Sipahi</h2>
