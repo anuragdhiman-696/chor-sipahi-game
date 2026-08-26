@@ -3,8 +3,6 @@ import io from 'socket.io-client';
 import Peer from 'peerjs';
 import './App.css';
 
-// Always use production backend URL when running inside mobile APK (where hostname is empty or localhost)
-const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 const SOCKET_SERVER_URL = 'https://chor-sipahi-game.onrender.com';
 
 const socket = io(SOCKET_SERVER_URL, { 
@@ -35,12 +33,22 @@ export default function App() {
   const [errorMessage, setErrorMessage] = useState('');
   const [isConnected, setIsConnected] = useState(socket.connected);
 
+  // Voice Chat State
   const [voiceJoined, setVoiceJoined] = useState(false);
   const [selfMuted, setSelfMuted] = useState(false);
   const [hostMuted, setHostMuted] = useState(false);
   const [voiceStates, setVoiceStates] = useState({});
   const [speakingPlayers, setSpeakingPlayers] = useState({});
   const [voiceError, setVoiceError] = useState('');
+
+  // Game Experience State
+  const [session, setSession] = useState(1);
+  const [round, setRound] = useState(1);
+  const [scores, setScores] = useState({});
+  const [myRole, setMyRole] = useState(null); // 'Raja', 'Mantri', 'Sipahi', 'Chor'
+  const [isChitRevealed, setIsChitRevealed] = useState(false);
+  const [sessionWinner, setSessionWinner] = useState(null);
+  const [roundEnded, setRoundEnded] = useState(false);
 
   const peerRef = useRef(null);
   const localStreamRef = useRef(null);
@@ -51,7 +59,7 @@ export default function App() {
   // Wake up Render instance on mount
   useEffect(() => {
     fetch('https://chor-sipahi-game.onrender.com')
-      .then(() => console.log('Server awakened successfully!'))
+      .then(() => console.log('Server awakened!'))
       .catch((err) => console.error('Server ping failed:', err));
   }, []);
 
@@ -68,7 +76,7 @@ export default function App() {
 
     const onConnectError = (err) => {
       setIsConnected(false);
-      setErrorMessage(`Connection error: ${err.message}. Server warming up...`);
+      setErrorMessage(`Connection error: ${err.message}.`);
     };
 
     socket.on('connect', onConnect);
@@ -79,25 +87,54 @@ export default function App() {
       setCurrentRoom(room);
       setGameState('lobby');
       setErrorMessage('');
+      initScores(room.players);
     });
 
     socket.on('room-joined', ({ room }) => {
       setCurrentRoom(room);
       setGameState(room.gameState === 'playing' ? 'playing' : 'lobby');
       setErrorMessage('');
+      initScores(room.players);
     });
 
-    socket.on('player-joined', ({ room }) => setCurrentRoom(room));
+    socket.on('player-joined', ({ room }) => {
+      setCurrentRoom(room);
+      initScores(room.players);
+    });
+
     socket.on('player-left', ({ socketId, room }) => {
       setCurrentRoom(room);
       removeRemoteAudio(socketId);
     });
-    socket.on('host-changed', ({ room }) => setCurrentRoom(room));
+
     socket.on('receive-message', (msgData) => setMessages((prev) => [...prev, msgData]));
-    socket.on('game-started', ({ room }) => {
+
+    socket.on('game-started', ({ room, roles }) => {
       setCurrentRoom(room);
       setGameState('playing');
+      setRoundEnded(false);
+      setIsChitRevealed(false);
+      setSessionWinner(null);
+      if (roles && roles[socket.id]) {
+        setMyRole(roles[socket.id]);
+      }
     });
+
+    socket.on('round-updated', ({ currentRound, currentSession, updatedScores, roles }) => {
+      setRound(currentRound);
+      setSession(currentSession);
+      if (updatedScores) setScores(updatedScores);
+      if (roles && roles[socket.id]) setMyRole(roles[socket.id]);
+      setIsChitRevealed(false);
+      setRoundEnded(false);
+    });
+
+    socket.on('session-ended', ({ winnerName, finalScores }) => {
+      setSessionWinner(winnerName);
+      if (finalScores) setScores(finalScores);
+      setRoundEnded(true);
+    });
+
     socket.on('error-message', (msg) => setErrorMessage(msg));
     socket.on('voice-state-updated', (updatedVoiceStates) => setVoiceStates(updatedVoiceStates));
 
@@ -119,9 +156,10 @@ export default function App() {
       socket.off('room-joined');
       socket.off('player-joined');
       socket.off('player-left');
-      socket.off('host-changed');
       socket.off('receive-message');
       socket.off('game-started');
+      socket.off('round-updated');
+      socket.off('session-ended');
       socket.off('error-message');
       socket.off('voice-state-updated');
       socket.off('force-host-mute');
@@ -133,11 +171,20 @@ export default function App() {
     return () => cleanupVoice();
   }, []);
 
+  const initScores = (players) => {
+    setScores((prev) => {
+      const newScores = { ...prev };
+      players.forEach((p) => {
+        if (newScores[p.id] === undefined) newScores[p.id] = 0;
+      });
+      return newScores;
+    });
+  };
+
   const joinVoiceChannel = async () => {
     if (voiceJoined) return;
     setVoiceError('');
 
-    // Utility helper to request Android permissions via Cordova
     const requestNativePermission = () => {
       return new Promise((resolve) => {
         if (window.cordova && window.cordova.plugins && window.cordova.plugins.permissions) {
@@ -160,20 +207,17 @@ export default function App() {
             () => resolve(false)
           );
         } else {
-          // Fallback for desktop browsers
           resolve(true);
         }
       });
     };
 
-    // Ensure deviceready has fired if running inside Cordova
     if (window.cordova) {
       await new Promise((resolve) => {
         if (window.deviceReadyFired) {
           resolve();
         } else {
           document.addEventListener('deviceready', resolve, { once: true });
-          // Safety timeout in case event already passed
           setTimeout(resolve, 1000);
         }
       });
@@ -338,26 +382,32 @@ export default function App() {
 
   const handleCreateRoom = () => {
     if (!playerName.trim()) return setErrorMessage('Please enter your name.');
-    if (!socket.connected) {
-      socket.connect();
-      return setErrorMessage('Connecting... Please try again shortly.');
-    }
+    if (!socket.connected) socket.connect();
     socket.emit('create-room', { playerName });
   };
 
   const handleJoinRoom = () => {
     if (!playerName.trim()) return setErrorMessage('Please enter your name.');
     if (!roomIdInput.trim()) return setErrorMessage('Please enter a Room Code.');
-    if (!socket.connected) {
-      socket.connect();
-      return setErrorMessage('Connecting... Please try again shortly.');
-    }
+    if (!socket.connected) socket.connect();
     socket.emit('join-room', { roomId: roomIdInput, playerName });
   };
 
   const handleStartGame = () => {
     if (currentRoom && socket.id === currentRoom.host) {
       socket.emit('start-game', { roomId: currentRoom.id });
+    }
+  };
+
+  const handleNextRound = () => {
+    if (currentRoom && socket.id === currentRoom.host) {
+      socket.emit('next-round', { roomId: currentRoom.id });
+    }
+  };
+
+  const handleNextSession = () => {
+    if (currentRoom && socket.id === currentRoom.host) {
+      socket.emit('next-session', { roomId: currentRoom.id });
     }
   };
 
@@ -369,13 +419,23 @@ export default function App() {
     }
   };
 
+  const getRolePoints = (role) => {
+    switch(role) {
+      case 'Raja': return 1000;
+      case 'Mantri': return 800;
+      case 'Sipahi': return 500;
+      case 'Chor': return 0;
+      default: return 0;
+    }
+  };
+
   const isHost = currentRoom && currentRoom.host === socket.id;
 
   return (
     <div className="app-container">
       <header className="app-header">
         <h1>CHOR SIPAHI</h1>
-        <p className="subtitle">4-Player Realtime Voice Game</p>
+        <p className="subtitle">Session {session} | Round {round}</p>
         <div className={`status-indicator ${isConnected ? 'online' : 'offline'}`}>
           <span className="status-dot"></span>
           <span className="status-text">{isConnected ? 'Server Connected' : 'Server Offline'}</span>
@@ -425,6 +485,7 @@ export default function App() {
                 <span className="badge">{gameState.toUpperCase()}</span>
               </div>
 
+              {/* Voice Panel */}
               <div className="voice-panel">
                 <h3>Voice Chat</h3>
                 {voiceError && <p className="voice-error">{voiceError}</p>}
@@ -455,60 +516,95 @@ export default function App() {
                 )}
               </div>
 
-              <div className="players-section">
-                <h3>Players ({currentRoom.players.length})</h3>
-                <div className="player-grid">
-                  {currentRoom.players.map((p) => {
-                    const pVoice = voiceStates[p.id] || {};
-                    const isSpeaking = speakingPlayers[p.id];
-                    return (
-                      <div key={p.id} className={`player-card ${isSpeaking ? 'speaking' : ''}`}>
-                        <div className="player-info">
-                          <span className="player-name">
-                            {p.name} {p.isHost && '👑'}
-                          </span>
-                          <span className="voice-indicator">
-                            {!pVoice.voiceJoined ? '🔇 Off' : 
-                              pVoice.hostMuted ? '🔇 Host Muted' : 
-                              pVoice.selfMuted ? '🔇 Muted' : '🎙️ Active'}
-                          </span>
-                        </div>
-                        {isHost && p.id !== socket.id && pVoice.voiceJoined && (
-                          <div className="host-actions">
-                            {pVoice.hostMuted ? (
-                              <button className="btn-xs btn-success" onClick={() => handleHostUnmute(p.id)}>
-                                Unmute
-                              </button>
-                            ) : (
-                              <button className="btn-xs btn-danger" onClick={() => handleHostMute(p.id)}>
-                                Mute
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
+              {/* Session Winner Banner */}
+              {sessionWinner && (
+                <div className="winner-banner">
+                  🏆 SESSION {session - 1} WINNER: {sessionWinner.toUpperCase()}! 🏆
                 </div>
-              </div>
+              )}
 
-              {gameState === 'lobby' && isHost && (
-                <div className="lobby-actions">
-                  <button className="btn btn-primary btn-large" onClick={handleStartGame}>
-                    Start Game
+              {/* Game Play Area */}
+              {gameState === 'playing' && (
+                <div className="game-play-area">
+                  <h3>Your Secret Chit</h3>
+                  <p className="subtext">Tap the paper chit below to fold / unfold it!</p>
+
+                  <div className="chit-wrapper">
+                    <div 
+                      className={`chit-card ${isChitRevealed ? 'unfolded' : 'folded'}`}
+                      onClick={() => setIsChitRevealed(!isChitRevealed)}
+                    >
+                      {isChitRevealed ? (
+                        <>
+                          <span className="chit-stamp">ROYAL DECREE</span>
+                          <span className="chit-role-title">{myRole || 'Chit Revealed'}</span>
+                          <span className="chit-role-points">+{getRolePoints(myRole)} Points</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="chit-stamp">CHOR SIPAHI</span>
+                          <span style={{ fontSize: '2rem', marginTop: '5px' }}>📜</span>
+                          <span style={{ fontSize: '0.85rem', color: '#666', marginTop: '5px' }}>Tap to Unfold</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  <button 
+                    className="btn btn-secondary" 
+                    onClick={() => setIsChitRevealed(!isChitRevealed)}
+                  >
+                    {isChitRevealed ? 'Fold & Hide Role' : 'Reveal Role'}
                   </button>
                 </div>
               )}
 
-              {gameState === 'playing' && (
-                <div className="game-board card">
-                  <h3>Game in Progress</h3>
-                  <p>In-game state loaded successfully.</p>
+              {/* Points Table / Leaderboard */}
+              <div className="leaderboard-section">
+                <h3>Points Table (Session {session})</h3>
+                <table className="leaderboard-table">
+                  <thead>
+                    <tr>
+                      <th>Player</th>
+                      <th>Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {currentRoom.players.map((p) => (
+                      <tr key={p.id}>
+                        <td>{p.name} {p.isHost && '👑'}</td>
+                        <td><strong>{scores[p.id] || 0}</strong> pts</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Host Flow Buttons */}
+              {isHost && (
+                <div className="lobby-actions" style={{ marginTop: '20px' }}>
+                  {gameState === 'lobby' && (
+                    <button className="btn btn-primary btn-large" onClick={handleStartGame}>
+                      Start Game (Session 1)
+                    </button>
+                  )}
+                  {gameState === 'playing' && (
+                    <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+                      <button className="btn btn-primary" onClick={handleNextRound}>
+                        ▶ Next Round (Round {round + 1})
+                      </button>
+                      <button className="btn btn-secondary" onClick={handleNextSession}>
+                        👑 Next Session (Session {session + 1})
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
+
             </div>
           </main>
 
+          {/* Chat Panel */}
           <aside className="chat-panel card">
             <h3>Text Chat</h3>
             <div className="chat-messages">
