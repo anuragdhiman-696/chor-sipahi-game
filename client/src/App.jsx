@@ -3,35 +3,35 @@ import io from 'socket.io-client';
 import Peer from 'peerjs';
 import './App.css';
 
-const SOCKET_SERVER_URL = 'https://chor-sipahi-game.onrender.com';
+// Change URL to match your Express server port (default 5000 or process.env.PORT)
+const SOCKET_SERVER_URL = 'http://localhost:5000';
 
-const socket = io(SOCKET_SERVER_URL, {
-  autoConnect: true,
-});
+const socket = io(SOCKET_SERVER_URL, { autoConnect: true });
 
-function App() {
-  // Navigation & Lobby State
+export default function App() {
+  // Navigation & Room State
   const [playerName, setPlayerName] = useState('');
   const [roomCode, setRoomCode] = useState('');
   const [currentRoom, setCurrentRoom] = useState(null);
-  const [gameState, setGameState] = useState('lobby');
+  const [joined, setJoined] = useState(false);
 
   // Game Logic State
   const [myRole, setMyRole] = useState(null);
+  const [scores, setScores] = useState({});
+  const [roles, setRoles] = useState({});
+  const [currentRound, setCurrentRound] = useState(1);
+  const [gameState, setGameState] = useState('WAITING'); // WAITING, GUESSING, ROUND_OVER, SESSION_OVER
   const [isChitRevealed, setIsChitRevealed] = useState(false);
-  const [wazirSocketId, setWazirSocketId] = useState(null);
-  const [roundEnded, setRoundEnded] = useState(false);
-  const [lastGuessResult, setLastGuessResult] = useState(null);
   const [selectedTarget, setSelectedTarget] = useState(null);
-  const [sessionWinner, setSessionWinner] = useState(null);
+  const [lastGuessResult, setLastGuessResult] = useState(null);
+  const [sessionWinners, setSessionWinners] = useState([]);
 
-  // Chat State
+  // Text Chat State
   const [chatMessages, setChatMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const chatBottomRef = useRef(null);
 
   // Voice Chat (PeerJS) State
-  const [peerId, setPeerId] = useState('');
   const [isVoiceConnected, setIsVoiceConnected] = useState(false);
   const [isSelfMuted, setIsSelfMuted] = useState(false);
   const [speakingPlayers, setSpeakingPlayers] = useState({});
@@ -43,23 +43,17 @@ function App() {
   const audioElements = useRef({});
 
   // -------------------------------------------------------------
-  // SOCKET.IO EVENT LISTENERS & GAME STATE MANAGEMENT
+  // SOCKET.IO LISTENERS & GAME STATE SYNC
   // -------------------------------------------------------------
   useEffect(() => {
-    socket.on('chat-history', (messages) => {
-      setChatMessages(messages || []);
-    });
-
-    socket.on('connect', () => {
-      console.log('Connected to socket server:', socket.id);
-    });
-
     socket.on('room-created', ({ room }) => {
       setCurrentRoom(room);
+      setJoined(true);
     });
 
     socket.on('room-joined', ({ room }) => {
       setCurrentRoom(room);
+      setJoined(true);
     });
 
     socket.on('player-joined', ({ room }) => {
@@ -70,44 +64,48 @@ function App() {
       setCurrentRoom(room);
     });
 
-    socket.on('game-started', ({ room, roles, wazirId }) => {
+    socket.on('host-changed', ({ room }) => {
       setCurrentRoom(room);
-      setGameState('playing');
-      setRoundEnded(false);
-      setIsChitRevealed(false);
-      setSessionWinner(null);
-      setLastGuessResult(null);
-      setSelectedTarget(null);
-      setWazirSocketId(wazirId);
-
-      if (roles && roles[socket.id]) {
-        setMyRole(roles[socket.id]);
-      }
     });
 
-    socket.on('round-updated', ({ room, roles, wazirId }) => {
-      setCurrentRoom(room);
-      setRoundEnded(false);
+    socket.on('roundStarted', (data) => {
+      setRoles(data.roles);
+      setScores(data.scores);
+      setCurrentRound(data.currentRound);
+      setGameState('GUESSING');
       setIsChitRevealed(false);
       setLastGuessResult(null);
       setSelectedTarget(null);
-      setWazirSocketId(wazirId);
 
-      if (roles && roles[socket.id]) {
-        setMyRole(roles[socket.id]);
+      if (data.roles && data.roles[socket.id]) {
+        setMyRole(data.roles[socket.id]);
       }
     });
 
-    socket.on('round-over', ({ room, result }) => {
-      setCurrentRoom(room);
-      setRoundEnded(true);
-      setLastGuessResult(result);
+    socket.on('roundEnded', (data) => {
+      setScores(data.scores);
+      setRoles(data.roles);
+      setGameState('ROUND_OVER');
+      setLastGuessResult({
+        isCorrect: data.isCorrect,
+        message: data.isCorrect ? 'Correct Guess! Wazir caught the Chor!' : 'Wrong Guess! Chor escaped!'
+      });
     });
 
-    socket.on('session-ended', ({ room, winner }) => {
-      setCurrentRoom(room);
-      setGameState('ended');
-      setSessionWinner(winner);
+    socket.on('sessionEnded', (data) => {
+      setScores(data.scores);
+      setRoles(data.roles);
+      setSessionWinners(data.winners);
+      setGameState('SESSION_OVER');
+      setLastGuessResult({
+        isCorrect: data.isCorrect,
+        message: data.isCorrect ? 'Correct Final Guess!' : 'Wrong Final Guess!'
+      });
+    });
+
+    // Chat Listeners
+    socket.on('chat-history', (messages) => {
+      setChatMessages(messages || []);
     });
 
     socket.on('receive-message', (msg) => {
@@ -119,51 +117,37 @@ function App() {
     });
 
     // Voice Sync Listeners
-    socket.on('voice-state-updated', ({ mutedPlayersMap }) => {
-      setMutedPlayers(mutedPlayersMap || {});
+    socket.on('voice-state-updated', (voiceStates) => {
+      const mPlayers = {};
+      Object.entries(voiceStates || {}).forEach(([id, state]) => {
+        if (state.hostMuted || state.selfMuted) {
+          mPlayers[id] = true;
+        }
+      });
+      setMutedPlayers(mPlayers);
     });
 
-    socket.on('force-host-mute', ({ isMuted }) => {
+    socket.on('force-host-mute', ({ hostMuted }) => {
       if (localStream.current) {
         localStream.current.getAudioTracks().forEach((track) => {
-          track.enabled = !isMuted;
+          track.enabled = !hostMuted;
         });
       }
-      setIsSelfMuted(isMuted);
+      setIsSelfMuted(hostMuted);
     });
 
     return () => {
-      socket.off('connect');
-      socket.off('room-created');
-      socket.off('room-joined');
-      socket.off('player-joined');
-      socket.off('player-left');
-      socket.off('game-started');
-      socket.off('round-updated');
-      socket.off('round-over');
-      socket.off('session-ended');
-      socket.off('receive-message');
-      socket.off('error-message');
-      socket.off('voice-state-updated');
-      socket.off('force-host-mute');
-      socket.off('chat-history');
+      socket.off();
     };
   }, []);
 
-  // Auto scroll text chat
+  // Auto-scroll chat window
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMessages]);
 
-  // Force hide role chit when starting new round/session
-  useEffect(() => {
-    if (gameState === 'playing') {
-      setIsChitRevealed(false);
-    }
-  }, [currentRoom?.round, gameState]);
-
   // -------------------------------------------------------------
-  // PEERJS VOICE CHAT LOGIC
+  // PEERJS VOICE CHAT SYSTEM
   // -------------------------------------------------------------
   const initPeerJS = async () => {
     try {
@@ -174,20 +158,12 @@ function App() {
         host: '0.peerjs.com',
         port: 443,
         path: '/',
-        secure: true,
-        config: {
-          iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' },
-            { urls: 'stun:stun2.l.google.com:19302' },
-          ],
-        },
+        secure: true
       });
 
       peerInstance.current = peer;
 
       peer.on('open', (id) => {
-        setPeerId(id);
         setIsVoiceConnected(true);
         socket.emit('join-voice', { roomId: currentRoom.code, peerId: id });
       });
@@ -199,23 +175,29 @@ function App() {
         });
       });
 
-      socket.on('user-connected-voice', ({ peerId: remotePeerId }) => {
-        connectToNewUser(remotePeerId, localStream.current);
+      socket.on('voice-participants', (participants) => {
+        participants.forEach(({ peerId: remotePeerId }) => {
+          connectToNewUser(remotePeerId, stream);
+        });
       });
 
-      socket.on('user-disconnected-voice', ({ peerId: remotePeerId }) => {
-        if (peerConnections.current[remotePeerId]) {
-          peerConnections.current[remotePeerId].close();
-          delete peerConnections.current[remotePeerId];
+      socket.on('user-connected-voice', ({ peerId: remotePeerId }) => {
+        connectToNewUser(remotePeerId, stream);
+      });
+
+      socket.on('user-disconnected-voice', ({ socketId }) => {
+        if (peerConnections.current[socketId]) {
+          peerConnections.current[socketId].close();
+          delete peerConnections.current[socketId];
         }
-        if (audioElements.current[remotePeerId]) {
-          audioElements.current[remotePeerId].remove();
-          delete audioElements.current[remotePeerId];
+        if (audioElements.current[socketId]) {
+          audioElements.current[socketId].remove();
+          delete audioElements.current[socketId];
         }
       });
     } catch (err) {
-      console.error('Failed to get audio stream:', err);
-      alert('Microphone access is required for voice chat.');
+      console.error('Microphone access failed:', err);
+      alert('Microphone permission required for Voice Chat.');
     }
   };
 
@@ -226,13 +208,6 @@ function App() {
 
     call.on('stream', (remoteStream) => {
       attachRemoteStream(remotePeerId, remoteStream);
-    });
-
-    call.on('close', () => {
-      if (audioElements.current[remotePeerId]) {
-        audioElements.current[remotePeerId].remove();
-        delete audioElements.current[remotePeerId];
-      }
     });
   };
 
@@ -279,7 +254,7 @@ function App() {
   };
 
   // -------------------------------------------------------------
-  // EVENT HANDLERS
+  // ACTION HANDLERS
   // -------------------------------------------------------------
   const handleCreateRoom = () => {
     if (!playerName.trim()) return alert('Please enter your name');
@@ -288,73 +263,55 @@ function App() {
 
   const handleJoinRoom = () => {
     if (!playerName.trim() || !roomCode.trim()) return alert('Please enter your name and room code');
-    socket.emit('join-room', { roomId: roomCode.toUpperCase(), playerName });
+    socket.emit('join-room', { roomId: roomCode.trim().toUpperCase(), playerName });
   };
 
   const handleStartGame = () => {
-    if (currentRoom?.players?.length !== 4) return alert('Exactly 4 players are required to start.');
     socket.emit('start-game', { roomId: currentRoom.code });
   };
 
   const handleMakeGuess = () => {
     if (!selectedTarget) return alert('Select a player to guess as Chor!');
-    socket.emit('make-guess', { roomId: currentRoom.code, targetSocketId: selectedTarget });
+    socket.emit('makeGuess', { roomId: currentRoom.code, guessedPlayerId: selectedTarget });
   };
 
   const handleNextRound = () => {
-    socket.emit('next-round', { roomId: currentRoom.code });
+    socket.emit('nextRound', { roomId: currentRoom.code });
   };
 
   const handleNextSession = () => {
-    socket.emit('next-session', { roomId: currentRoom.code });
+    setSessionWinners([]);
+    socket.emit('nextSession', { roomId: currentRoom.code });
   };
 
   const handleSendMessage = (e) => {
     e.preventDefault();
-
     if (!newMessage.trim() || !currentRoom) return;
-
-    socket.emit('send-message', {
-      roomId: currentRoom.code,
-      message: newMessage.trim()
-    });
-
+    socket.emit('send-message', { roomId: currentRoom.code, message: newMessage.trim() });
     setNewMessage('');
   };
 
   const handleHostMutePlayer = (targetSocketId) => {
-    const isCurrentlyMuted = mutedPlayers[targetSocketId];
-    if (isCurrentlyMuted) {
+    if (mutedPlayers[targetSocketId]) {
       socket.emit('host-unmute-player', { roomId: currentRoom.code, targetSocketId });
     } else {
       socket.emit('host-mute-player', { roomId: currentRoom.code, targetSocketId });
     }
   };
 
-  const handleHostMuteAll = () => {
-    socket.emit('host-mute-all', { roomId: currentRoom.code });
-  };
+  const isWazir = myRole === 'Wazir';
+  const isHost = currentRoom?.host === socket.id;
 
-  const handleHostUnmuteAll = () => {
-    socket.emit('host-unmute-all', { roomId: currentRoom.code });
-  };
+  // -------------------------------------------------------------
+  // RENDERING VIEWS
+  // -------------------------------------------------------------
 
-  const getRolePoints = (role) => {
-    switch (role) {
-      case 'Raja': return 1000;
-      case 'Wazir': return 800;
-      case 'Sipahi': return 500;
-      case 'Chor': return 0;
-      default: return 0;
-    }
-  };
-
-  // Lobby Entry Screen
-  if (gameState === 'lobby' && !currentRoom) {
+  // 1. Lobby Entry Screen
+  if (!joined) {
     return (
       <div className="container center">
-        <h1 className="main-title">👑 Chor-Sipahi Multiplayer</h1>
-        <p className="subtitle">Real-time multiplayer paper chit guessing game</p>
+        <h1 className="main-title">👑 Raja Mantri Chor Sipahi</h1>
+        <p className="subtitle">Real-time Multiplayer Game with Voice Chat</p>
         <div className="card">
           <label>Display Name</label>
           <input
@@ -372,7 +329,7 @@ function App() {
           <label>Room Code</label>
           <input
             type="text"
-            placeholder="Enter 6-digit Code"
+            placeholder="Enter 6-character Code"
             value={roomCode}
             onChange={(e) => setRoomCode(e.target.value)}
           />
@@ -386,26 +343,24 @@ function App() {
     );
   }
 
-  // Waiting Room / Lobby
-  if (gameState === 'lobby' && currentRoom) {
-    const isHost = currentRoom.host === socket.id;
+  // 2. Waiting Room Lobby
+  if (gameState === 'WAITING') {
+    const activePlayers = currentRoom?.players?.filter((p) => !p.isSpectator) || [];
     return (
       <div className="container center">
-        <h2>Room Code: <span className="highlight">{currentRoom.code}</span></h2>
+        <h2>Room Code: <span className="highlight">{currentRoom?.code}</span></h2>
         <div className="card">
           <h3>
-            Players ({currentRoom.players.filter(p => !p.isSpectator).length}/4)
-            {currentRoom.players.some(p => p.isSpectator) &&
-              ` • Spectators: ${currentRoom.players.filter(p => p.isSpectator).length}`}
+            Players ({activePlayers.length}/4)
+            {currentRoom?.players?.some((p) => p.isSpectator) &&
+              ` • Spectators: ${currentRoom.players.filter((p) => p.isSpectator).length}`}
           </h3>
           <ul className="lobby-player-list">
-            {currentRoom.players.map((p) => (
+            {currentRoom?.players?.map((p) => (
               <li key={p.id} className="lobby-player-item">
                 <span>
                   {p.name} {p.id === socket.id ? '(You)' : ''}
-                  {p.isSpectator && (
-                    <span className="spectator-badge"> 👁 Spectator</span>
-                  )}
+                  {p.isSpectator && <span className="spectator-badge"> 👁 Spectator</span>}
                 </span>
                 {p.id === currentRoom.host && <span className="host-badge">👑 Host</span>}
               </li>
@@ -426,13 +381,9 @@ function App() {
 
           <div className="chat-box lobby-chat">
             <h3>💬 Room Chat</h3>
-
             <div className="chat-messages">
               {chatMessages.map((msg, index) => (
-                <div
-                  key={index}
-                  className={`chat-message ${msg.system ? 'system-message' : ''}`}
-                >
+                <div key={index} className={`chat-message ${msg.system ? 'system-message' : ''}`}>
                   {msg.system ? (
                     <em>{msg.text}</em>
                   ) : (
@@ -443,10 +394,8 @@ function App() {
                   )}
                 </div>
               ))}
-
               <div ref={chatBottomRef} />
             </div>
-
             <form onSubmit={handleSendMessage} className="chat-input-form">
               <input
                 type="text"
@@ -454,7 +403,6 @@ function App() {
                 value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
               />
-
               <button type="submit" className="btn btn-primary btn-sm">
                 Send
               </button>
@@ -466,65 +414,56 @@ function App() {
               <button
                 className="btn btn-primary"
                 onClick={handleStartGame}
-                disabled={currentRoom.players.filter(p => !p.isSpectator).length !== 4}
+                disabled={activePlayers.length !== 4}
               >
-                {currentRoom.players.filter(p => !p.isSpectator).length === 4
-                  ? '🚀 Start Game'
-                  : 'Waiting for 4 Players...'}
+                {activePlayers.length === 4 ? '🚀 Start Game' : 'Waiting for 4 Players...'}
               </button>
             </div>
           ) : (
-            <p className="waiting-text">Waiting for host to start the game...</p>
+            <p className="waiting-text">Waiting for the host to start the game...</p>
           )}
         </div>
       </div>
     );
   }
 
-  // Main Playing Screen
+  // 3. Main Gameplay Board
   return (
     <div className="container">
       <header className="header">
         <div>
-          <h2>Chor-Sipahi</h2>
+          <h2>Raja Mantri Chor Sipahi</h2>
           <span className="room-tag">Room: {currentRoom?.code}</span>
         </div>
         <div className="round-info">
-          <span>Round <strong>{currentRoom?.round || 1}</strong> / 5</span>
+          <span>Round <strong>{currentRound}</strong> / 20</span>
         </div>
       </header>
 
       {lastGuessResult && (
-        <div className={`guess-result-banner ${lastGuessResult.correct ? 'success' : 'failure'}`}>
-          {lastGuessResult.correct
-            ? `🎉 Perfect Guess! ${lastGuessResult.wazirName} correctly caught ${lastGuessResult.chorName} as the Chor!`
-            : `❌ Incorrect Guess! ${lastGuessResult.chorName} was the real Chor! Points lost.`}
+        <div className={`guess-result-banner ${lastGuessResult.isCorrect ? 'success' : 'failure'}`}>
+          {lastGuessResult.message}
         </div>
       )}
 
       <div className="main-layout">
-        {/* Chit Section */}
+        {/* Chit Component */}
         <div className="chit-section">
           <h3>Your Secret Chit</h3>
           <div
             className={`chit-card ${isChitRevealed ? 'unfolded' : 'folded'}`}
-            onClick={() => {
-              if (myRole) setIsChitRevealed((prev) => !prev);
-            }}
+            onClick={() => myRole && setIsChitRevealed((prev) => !prev)}
           >
             {isChitRevealed && myRole ? (
               <>
                 <span className="chit-stamp">ROYAL DECREE</span>
                 <span className="chit-role-title">{myRole}</span>
-                <span className="chit-role-points">Base: +{getRolePoints(myRole)} Pts</span>
               </>
             ) : (
               <>
-                <span className="chit-stamp">RAJA WAZIR CHOR SIPAHI</span>
+                <span className="chit-stamp">SECRET ROLE</span>
                 <span className="chit-icon">📜</span>
-                <span className="chit-hint">
-                  {myRole ? 'Tap to Unfold Chit' : 'Assigning Role...'}
-                </span>
+                <span className="chit-hint">Tap to Unfold Chit</span>
               </>
             )}
           </div>
@@ -535,12 +474,12 @@ function App() {
             onClick={() => setIsChitRevealed((prev) => !prev)}
             disabled={!myRole}
           >
-            {!myRole ? 'Assigning Role...' : isChitRevealed ? 'Fold & Hide Role' : 'Reveal Role'}
+            {isChitRevealed ? 'Fold & Hide Role' : 'Reveal Role'}
           </button>
 
-          {/* Voice Controls Sidebar */}
+          {/* Voice Sidebar */}
           <div className="voice-controls-panel">
-            <h4>🎙️ Voice Control</h4>
+            <h4>🎙️ Voice Chat</h4>
             {!isVoiceConnected ? (
               <button className="btn btn-secondary btn-sm" onClick={initPeerJS}>
                 Join Voice
@@ -553,38 +492,26 @@ function App() {
                 {isSelfMuted ? 'Unmute Mic' : 'Mute Mic'}
               </button>
             )}
-
-            {currentRoom?.host === socket.id && (
-              <div className="host-voice-buttons">
-                <button className="btn btn-danger btn-sm" onClick={handleHostMuteAll}>
-                  Mute All
-                </button>
-                <button className="btn btn-secondary btn-sm" onClick={handleHostUnmuteAll}>
-                  Unmute All
-                </button>
-              </div>
-            )}
           </div>
         </div>
 
-        {/* Board & Players */}
+        {/* Players Grid */}
         <div className="players-section">
           <h3>Players Board</h3>
           <div className="players-grid">
             {currentRoom?.players
-              .filter(p => !p.isSpectator)
+              ?.filter((p) => !p.isSpectator)
               .map((p) => {
                 const isMe = p.id === socket.id;
-                const isWazir = socket.id === wazirSocketId;
-                const isTargetable = isWazir && !isMe && !roundEnded;
-                const isSpeaking = speakingPlayers[p.peerId];
+                const canTarget = isWazir && !isMe && gameState === 'GUESSING';
+                const showRole = gameState !== 'GUESSING' || isMe;
                 const isMuted = mutedPlayers[p.id];
 
                 return (
                   <div
                     key={p.id}
-                    className={`player-card ${selectedTarget === p.id ? 'selected' : ''} ${isSpeaking ? 'speaking' : ''}`}
-                    onClick={() => isTargetable && setSelectedTarget(p.id)}
+                    className={`player-card ${selectedTarget === p.id ? 'selected' : ''}`}
+                    onClick={() => canTarget && setSelectedTarget(p.id)}
                   >
                     <div className="player-card-header">
                       <span className="player-name">
@@ -593,13 +520,10 @@ function App() {
                       {isMuted && <span className="muted-icon">🔇</span>}
                     </div>
 
-                    <div className="player-score">Total Score: {p.score || 0}</div>
+                    <div className="player-score">Score: {scores[p.id] || 0}</div>
+                    <div className="player-role">Role: {showRole ? roles[p.id] : '???'}</div>
 
-                    {roundEnded && p.role && (
-                      <div className="player-role-revealed">Role: {p.role}</div>
-                    )}
-
-                    {currentRoom?.host === socket.id && !isMe && (
+                    {isHost && !isMe && (
                       <button
                         className="btn-link"
                         onClick={(e) => {
@@ -615,38 +539,26 @@ function App() {
               })}
           </div>
 
-          {/* Wazir Action Controls */}
-          {socket.id === wazirSocketId && !roundEnded && (
+          {/* Wazir Guess Control */}
+          {isWazir && gameState === 'GUESSING' && (
             <div className="wazir-controls">
-              <p>
-                You are the <strong>Wazir</strong>! Identify who holds the <strong>Chor</strong> chit.
-              </p>
-              <button
-                className="btn btn-primary"
-                onClick={handleMakeGuess}
-                disabled={!selectedTarget}
-              >
+              <p>You are the <strong>Wazir</strong>! Select a player and guess who holds the <strong>Chor</strong> role.</p>
+              <button className="btn btn-primary" onClick={handleMakeGuess} disabled={!selectedTarget}>
                 Confirm Guess
               </button>
             </div>
           )}
 
-          {/* Host Next Round Controls */}
-          {roundEnded && currentRoom?.host === socket.id && (
+          {/* Round Controls */}
+          {gameState === 'ROUND_OVER' && (
             <div className="host-controls">
-              {currentRoom.round < 5 ? (
-                <button className="btn btn-primary" onClick={handleNextRound}>
-                  Start Round {currentRoom.round + 1}
-                </button>
-              ) : (
-                <button className="btn btn-primary" onClick={handleNextSession}>
-                  End 5-Round Session
-                </button>
-              )}
+              <button className="btn btn-primary" onClick={handleNextRound}>
+                Next Round ➔
+              </button>
             </div>
           )}
 
-          {/* In-game Text Chat */}
+          {/* Chat Window */}
           <div className="chat-box">
             <div className="chat-messages">
               {chatMessages.map((msg, index) => (
@@ -672,31 +584,29 @@ function App() {
         </div>
       </div>
 
-      {/* Leaderboard Modal on Session End */}
-      {gameState === 'ended' && (
+      {/* Session Winner Modal */}
+      {gameState === 'SESSION_OVER' && sessionWinners.length > 0 && (
         <div className="modal-overlay">
           <div className="modal">
             <h2>🏆 Game Session Over!</h2>
             <h3 className="winner-title">
-              Winner: {sessionWinner?.name} ({sessionWinner?.score} pts)
+              Winner: {sessionWinners.join(', ')}
             </h3>
             <div className="leaderboard">
-              <h4>Final Scoreboard</h4>
+              <h4>Final Scores</h4>
               <ul>
                 {currentRoom?.players
-                  ?.sort((a, b) => (b.score || 0) - (a.score || 0))
-                  .map((player, rank) => (
+                  ?.filter((p) => !p.isSpectator)
+                  .map((player) => (
                     <li key={player.id}>
-                      <span>
-                        #{rank + 1} {player.name}
-                      </span>
-                      <strong>{player.score || 0} pts</strong>
+                      <span>{player.name}</span>
+                      <strong>{scores[player.id] || 0} pts</strong>
                     </li>
                   ))}
               </ul>
             </div>
-            <button className="btn btn-primary" onClick={() => setGameState('lobby')}>
-              Return to Lobby
+            <button className="btn btn-primary" onClick={handleNextSession}>
+              Start Next Session 🔄
             </button>
           </div>
         </div>
@@ -704,5 +614,3 @@ function App() {
     </div>
   );
 }
-
-export default App;
