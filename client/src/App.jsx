@@ -47,9 +47,10 @@ export default function App() {
   // -------------------------------------------------------------
   useEffect(() => {
     socket.on('room-created', ({ room }) => {
-      setCurrentRoom(room);
-      setJoined(true);
-    });
+  setCurrentRoom(room);
+  setGameState(room.gameState); // Set to 'WAITING' so the UI transitions to the waiting screen
+  setJoined(true);
+});
 
     socket.on('room-joined', ({ room }) => {
       setCurrentRoom(room);
