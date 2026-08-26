@@ -45,10 +45,17 @@ export default function App() {
   const [session, setSession] = useState(1);
   const [round, setRound] = useState(1);
   const [scores, setScores] = useState({});
-  const [myRole, setMyRole] = useState(null); // 'Raja', 'Mantri', 'Sipahi', 'Chor'
+  const [myRole, setMyRole] = useState(null); // 'Raja', 'Wazir', 'Sipahi', 'Chor'
   const [isChitRevealed, setIsChitRevealed] = useState(false);
   const [sessionWinner, setSessionWinner] = useState(null);
   const [roundEnded, setRoundEnded] = useState(false);
+
+  // New Wazir & Spectator Engine States
+  const [isSpectator, setIsSpectator] = useState(false);
+  const [roundStatus, setRoundStatus] = useState('WAITING'); // 'WAITING', 'WAZIR_GUESSING', 'ROUND_OVER'
+  const [wazirSocketId, setWazirSocketId] = useState(null);
+  const [selectedTarget, setSelectedTarget] = useState(null);
+  const [lastGuessResult, setLastGuessResult] = useState(null);
 
   const peerRef = useRef(null);
   const localStreamRef = useRef(null);
@@ -83,16 +90,18 @@ export default function App() {
     socket.on('disconnect', onDisconnect);
     socket.on('connect_error', onConnectError);
 
-    socket.on('room-created', ({ room }) => {
+    socket.on('room-created', ({ room, playerStatus }) => {
       setCurrentRoom(room);
       setGameState('lobby');
+      setIsSpectator(playerStatus === 'SPECTATOR');
       setErrorMessage('');
       initScores(room.players);
     });
 
-    socket.on('room-joined', ({ room }) => {
+    socket.on('room-joined', ({ room, playerStatus }) => {
       setCurrentRoom(room);
       setGameState(room.gameState === 'playing' ? 'playing' : 'lobby');
+      setIsSpectator(playerStatus === 'SPECTATOR');
       setErrorMessage('');
       initScores(room.players);
     });
@@ -109,24 +118,40 @@ export default function App() {
 
     socket.on('receive-message', (msgData) => setMessages((prev) => [...prev, msgData]));
 
-    socket.on('game-started', ({ room, roles }) => {
+    socket.on('game-started', ({ room, roles, wazirId }) => {
       setCurrentRoom(room);
       setGameState('playing');
+      setRoundStatus('WAZIR_GUESSING');
       setRoundEnded(false);
       setIsChitRevealed(false);
       setSessionWinner(null);
+      setLastGuessResult(null);
+      setSelectedTarget(null);
+      setWazirSocketId(wazirId);
+
       if (roles && roles[socket.id]) {
         setMyRole(roles[socket.id]);
       }
     });
 
-    socket.on('round-updated', ({ currentRound, currentSession, updatedScores, roles }) => {
+    socket.on('round-updated', ({ currentRound, currentSession, updatedScores, roles, wazirId }) => {
       setRound(currentRound);
       setSession(currentSession);
+      setRoundStatus('WAZIR_GUESSING');
       if (updatedScores) setScores(updatedScores);
       if (roles && roles[socket.id]) setMyRole(roles[socket.id]);
+      setWazirSocketId(wazirId);
       setIsChitRevealed(false);
       setRoundEnded(false);
+      setLastGuessResult(null);
+      setSelectedTarget(null);
+    });
+
+    socket.on('round-over', ({ scores: newScores, wasCorrect, roles }) => {
+      setRoundStatus('ROUND_OVER');
+      if (newScores) setScores(newScores);
+      setRoundEnded(true);
+      setLastGuessResult(wasCorrect);
     });
 
     socket.on('session-ended', ({ winnerName, finalScores }) => {
@@ -159,6 +184,7 @@ export default function App() {
       socket.off('receive-message');
       socket.off('game-started');
       socket.off('round-updated');
+      socket.off('round-over');
       socket.off('session-ended');
       socket.off('error-message');
       socket.off('voice-state-updated');
@@ -395,8 +421,17 @@ export default function App() {
 
   const handleStartGame = () => {
     if (currentRoom && socket.id === currentRoom.host) {
+      if (currentRoom.players.length < 4) {
+        setErrorMessage('Cannot start game. Exactly 4 active players are required!');
+        return;
+      }
       socket.emit('start-game', { roomId: currentRoom.id });
     }
+  };
+
+  const handleConfirmGuess = () => {
+    if (!selectedTarget || socket.id !== wazirSocketId) return;
+    socket.emit('make-guess', { roomId: currentRoom.id, suspectedSocketId: selectedTarget });
   };
 
   const handleNextRound = () => {
@@ -422,7 +457,7 @@ export default function App() {
   const getRolePoints = (role) => {
     switch(role) {
       case 'Raja': return 1000;
-      case 'Mantri': return 800;
+      case 'Wazir': return 800;
       case 'Sipahi': return 500;
       case 'Chor': return 0;
       default: return 0;
@@ -430,11 +465,12 @@ export default function App() {
   };
 
   const isHost = currentRoom && currentRoom.host === socket.id;
+  const isWazir = socket.id === wazirSocketId;
 
   return (
     <div className="app-container">
       <header className="app-header">
-        <h1>CHOR SIPAHI</h1>
+        <h1>RAJA WAZIR CHOR SIPAHI</h1>
         <p className="subtitle">Session {session} | Round {round}</p>
         <div className={`status-indicator ${isConnected ? 'online' : 'offline'}`}>
           <span className="status-dot"></span>
@@ -482,7 +518,10 @@ export default function App() {
             <div className="card room-info-card">
               <div className="room-header">
                 <h2>Room Code: <span className="highlight">{currentRoom.id}</span></h2>
-                <span className="badge">{gameState.toUpperCase()}</span>
+                <div>
+                  <span className="badge" style={{ marginRight: '8px' }}>{gameState.toUpperCase()}</span>
+                  {isSpectator && <span className="badge spectator-badge">👁 SPECTATOR QUEUE</span>}
+                </div>
               </div>
 
               {/* Voice Panel */}
@@ -516,6 +555,13 @@ export default function App() {
                 )}
               </div>
 
+              {/* Spectator Warning Banner */}
+              {isSpectator && (
+                <div className="spectator-banner">
+                  You are currently in the <strong>Spectator Lobby</strong> (5th+ player). You will watch the game live and join automatically when a seat opens!
+                </div>
+              )}
+
               {/* Session Winner Banner */}
               {sessionWinner && (
                 <div className="winner-banner">
@@ -526,36 +572,97 @@ export default function App() {
               {/* Game Play Area */}
               {gameState === 'playing' && (
                 <div className="game-play-area">
-                  <h3>Your Secret Chit</h3>
-                  <p className="subtext">Tap the paper chit below to fold / unfold it!</p>
+                  {!isSpectator && (
+                    <>
+                      <h3>Your Secret Chit</h3>
+                      <p className="subtext">Tap the paper chit below to fold / unfold it!</p>
 
-                  <div className="chit-wrapper">
-                    <div 
-                      className={`chit-card ${isChitRevealed ? 'unfolded' : 'folded'}`}
-                      onClick={() => setIsChitRevealed(!isChitRevealed)}
-                    >
-                      {isChitRevealed ? (
-                        <>
-                          <span className="chit-stamp">ROYAL DECREE</span>
-                          <span className="chit-role-title">{myRole || 'Chit Revealed'}</span>
-                          <span className="chit-role-points">+{getRolePoints(myRole)} Points</span>
-                        </>
-                      ) : (
-                        <>
-                          <span className="chit-stamp">CHOR SIPAHI</span>
-                          <span style={{ fontSize: '2rem', marginTop: '5px' }}>📜</span>
-                          <span style={{ fontSize: '0.85rem', color: '#666', marginTop: '5px' }}>Tap to Unfold</span>
-                        </>
-                      )}
+                      <div className="chit-wrapper">
+                        <div 
+                          className={`chit-card ${isChitRevealed ? 'unfolded' : 'folded'}`}
+                          onClick={() => setIsChitRevealed(!isChitRevealed)}
+                        >
+                          {isChitRevealed ? (
+                            <>
+                              <span className="chit-stamp">ROYAL DECREE</span>
+                              <span className="chit-role-title">{myRole || 'Chit Revealed'}</span>
+                              <span className="chit-role-points">Base: +{getRolePoints(myRole)} Points</span>
+                            </>
+                          ) : (
+                            <>
+                              <span className="chit-stamp">RAJA WAZIR CHOR SIPAHI</span>
+                              <span style={{ fontSize: '2rem', marginTop: '5px' }}>📜</span>
+                              <span style={{ fontSize: '0.85rem', color: '#666', marginTop: '5px' }}>Tap to Unfold</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+
+                      <button 
+                        className="btn btn-secondary" 
+                        onClick={() => setIsChitRevealed(!isChitRevealed)}
+                      >
+                        {isChitRevealed ? 'Fold & Hide Role' : 'Reveal Role'}
+                      </button>
+                    </>
+                  )}
+
+                  {/* Wazir Guessing Mechanics Section */}
+                  <div className="wazir-guessing-container">
+                    {roundStatus === 'WAZIR_GUESSING' && (
+                      <div className="phase-banner">
+                        {isWazir ? (
+                          <p className="wazir-prompt">🔍 <strong>You are the Wazir!</strong> Click a player below to catch the Chor (Thief):</p>
+                        ) : (
+                          <p>🤫 <strong>Wazir is searching...</strong> Wazir must catch the Chor!</p>
+                        )}
+                      </div>
+                    )}
+
+                    {lastGuessResult !== null && (
+                      <div className={`guess-result-banner ${lastGuessResult ? 'success' : 'failure'}`}>
+                        {lastGuessResult ? '🎉 Wazir caught the Chor! Wazir gets 800 pts.' : '❌ Wazir guessed wrong! Chor steals the 800 pts!'}
+                      </div>
+                    )}
+
+                    {/* Suspect Target Grid */}
+                    <div className="player-grid">
+                      {currentRoom.players.map((p) => {
+                        const isSelf = p.id === socket.id;
+                        const isSelected = selectedTarget === p.id;
+                        const canBeTargeted = isWazir && !isSelf && roundStatus === 'WAZIR_GUESSING';
+
+                        return (
+                          <div
+                            key={p.id}
+                            className={`player-card ${canBeTargeted ? 'selectable' : ''} ${isSelected ? 'selected' : ''}`}
+                            onClick={() => canBeTargeted && setSelectedTarget(p.id)}
+                          >
+                            <div className="player-info">
+                              <span className="player-name">
+                                {p.name} {isSelf && '(You)'} {p.isHost && '👑'}
+                              </span>
+                              <span className="voice-indicator">
+                                {speakingPlayers[p.id] ? '🗣️ Speaking' : '🤐 Silent'}
+                              </span>
+                            </div>
+                            {isSelected && <span className="suspect-tag">SUSPECT</span>}
+                          </div>
+                        );
+                      })}
                     </div>
-                  </div>
 
-                  <button 
-                    className="btn btn-secondary" 
-                    onClick={() => setIsChitRevealed(!isChitRevealed)}
-                  >
-                    {isChitRevealed ? 'Fold & Hide Role' : 'Reveal Role'}
-                  </button>
+                    {/* Wazir Confirm Button */}
+                    {isWazir && roundStatus === 'WAZIR_GUESSING' && (
+                      <button
+                        className="btn btn-primary btn-confirm-guess"
+                        onClick={handleConfirmGuess}
+                        disabled={!selectedTarget}
+                      >
+                        Confirm Guess
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -584,13 +691,17 @@ export default function App() {
               {isHost && (
                 <div className="lobby-actions" style={{ marginTop: '20px' }}>
                   {gameState === 'lobby' && (
-                    <button className="btn btn-primary btn-large" onClick={handleStartGame}>
-                      Start Game (Session 1)
+                    <button 
+                      className="btn btn-primary btn-large" 
+                      onClick={handleStartGame}
+                      disabled={currentRoom.players.length < 4}
+                    >
+                      {currentRoom.players.length < 4 ? 'Waiting for 4 Players...' : 'Start Game (Session 1)'}
                     </button>
                   )}
                   {gameState === 'playing' && (
                     <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
-                      <button className="btn btn-primary" onClick={handleNextRound}>
+                      <button className="btn btn-primary" onClick={handleNextRound} disabled={roundStatus === 'WAZIR_GUESSING'}>
                         ▶ Next Round (Round {round + 1})
                       </button>
                       <button className="btn btn-secondary" onClick={handleNextSession}>

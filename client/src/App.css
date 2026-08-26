@@ -431,3 +431,92 @@ button:disabled {
   background-color: #2c3e50;
   color: #ecf0f1;
 }
+
+/* --- Spectator & Wazir UI Additions --- */
+.spectator-badge {
+  background: #6b21a8;
+  color: #e9d5ff;
+  border: 1px solid #a855f7;
+}
+
+.spectator-banner {
+  background: rgba(88, 28, 135, 0.4);
+  border: 1px solid #9333ea;
+  color: #f3e8ff;
+  padding: 12px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  text-align: center;
+  font-size: 0.9rem;
+}
+
+.wazir-guessing-container {
+  margin-top: 25px;
+  background: rgba(15, 23, 42, 0.5);
+  padding: 16px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+
+.phase-banner {
+  text-align: center;
+  margin-bottom: 15px;
+  font-size: 0.95rem;
+  color: #fef08a;
+}
+
+.player-card.selectable {
+  cursor: pointer;
+  border-color: #64748b;
+  transition: all 0.2s ease;
+}
+
+.player-card.selectable:hover {
+  border-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.player-card.selected {
+  border-color: #ef4444 !important;
+  background: rgba(239, 68, 68, 0.2) !important;
+  transform: scale(1.02);
+}
+
+.suspect-tag {
+  background: #dc2626;
+  color: white;
+  font-size: 0.65rem;
+  font-weight: bold;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.btn-confirm-guess {
+  margin-top: 15px;
+  width: 100%;
+  background: #dc2626;
+}
+
+.btn-confirm-guess:hover {
+  background: #b91c1c;
+}
+
+.guess-result-banner {
+  padding: 12px;
+  border-radius: 8px;
+  text-align: center;
+  font-weight: bold;
+  margin-bottom: 15px;
+}
+
+.guess-result-banner.success {
+  background: rgba(34, 197, 94, 0.2);
+  border: 1px solid #22c55e;
+  color: #4ade80;
+}
+
+.guess-result-banner.failure {
+  background: rgba(239, 68, 68, 0.2);
+  border: 1px solid #ef4444;
+  color: #f87171;
+}
