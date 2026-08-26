@@ -50,19 +50,19 @@ function App() {
       console.log('Connected to socket server:', socket.id);
     });
 
-    socket.on('room-created', (room) => {
+    socket.on('room-created', ({ room }) => {
       setCurrentRoom(room);
     });
 
-    socket.on('room-joined', (room) => {
+    socket.on('room-joined', ({ room }) => {
       setCurrentRoom(room);
     });
 
-    socket.on('player-joined', (room) => {
+    socket.on('player-joined', ({ room }) => {
       setCurrentRoom(room);
     });
 
-    socket.on('player-left', (room) => {
+    socket.on('player-left', ({ room }) => {
       setCurrentRoom(room);
     });
 
@@ -185,9 +185,7 @@ function App() {
       peer.on('open', (id) => {
         setPeerId(id);
         setIsVoiceConnected(true);
-        if (currentRoom) {
-          socket.emit('join-voice', { roomCode: currentRoom.code, peerId: id });
-        }
+       socket.emit('join-voice', { roomId: currentRoom.code, peerId: id });
       });
 
       peer.on('call', (call) => {
@@ -273,8 +271,7 @@ function App() {
       audioTrack.enabled = !audioTrack.enabled;
       const mutedState = !audioTrack.enabled;
       setIsSelfMuted(mutedState);
-      socket.emit('voice-mute-self', { roomCode: currentRoom?.code, isMuted: mutedState });
-    }
+      socket.emit('voice-mute-self', { roomId: currentRoom?.code, selfMuted: mutedState });    }
   };
 
   // -------------------------------------------------------------
@@ -282,12 +279,12 @@ function App() {
   // -------------------------------------------------------------
   const handleCreateRoom = () => {
     if (!playerName.trim()) return alert('Please enter your name');
-    socket.emit('create-room', { name: playerName });
+    socket.emit('create-room', { playerName });
   };
 
   const handleJoinRoom = () => {
     if (!playerName.trim() || !roomCode.trim()) return alert('Please enter your name and room code');
-    socket.emit('join-room', { roomCode: roomCode.toUpperCase(), name: playerName });
+    socket.emit('join-room', { roomId: roomCode.toUpperCase(), playerName });
   };
 
   const handleStartGame = () => {
@@ -311,8 +308,7 @@ function App() {
   const handleSendMessage = (e) => {
     e.preventDefault();
     if (!newMessage.trim() || !currentRoom) return;
-    socket.emit('send-message', { roomCode: currentRoom.code, text: newMessage, sender: playerName });
-    setNewMessage('');
+    socket.emit('send-message', { roomId: currentRoom.code, message: newMessage });    setNewMessage('');
   };
 
   const handleHostMutePlayer = (targetSocketId) => {
@@ -530,9 +526,8 @@ function App() {
               return (
                 <div
                   key={p.id}
-                  className={`player-card ${selectedTarget === p.id ? 'selected' : ''} ${
-                    isSpeaking ? 'speaking' : ''
-                  }`}
+                  className={`player-card ${selectedTarget === p.id ? 'selected' : ''} ${isSpeaking ? 'speaking' : ''
+                    }`}
                   onClick={() => isTargetable && setSelectedTarget(p.id)}
                 >
                   <div className="player-card-header">

@@ -63,9 +63,10 @@ io.on('connection', (socket) => {
     }
 
     const roomData = {
-      id: roomId,
-      host: socket.id,
-      players: [{
+  id: roomId,
+  code: roomId,
+  host: socket.id,
+  players: [{
         id: socket.id,
         name: playerName || 'Player 1',
         isHost: true,
@@ -230,13 +231,35 @@ io.on('connection', (socket) => {
   });
 
   socket.on('start-game', ({ roomId }) => {
-    const room = rooms.get(roomId);
-    if (!room || socket.id !== room.host) return;
+  const room = rooms.get(roomId);
+  if (!room || socket.id !== room.host) return;
 
-    room.gameState = 'playing';
-    io.to(roomId).emit('game-started', { room });
+  if (room.players.length !== 4) {
+    return socket.emit('error-message', 'Exactly 4 players are required.');
+  }
+
+  const shuffledPlayers = [...room.players].sort(() => Math.random() - 0.5);
+
+  const roles = {};
+  roles[shuffledPlayers[0].id] = 'Raja';
+  roles[shuffledPlayers[1].id] = 'Wazir';
+  roles[shuffledPlayers[2].id] = 'Sipahi';
+  roles[shuffledPlayers[3].id] = 'Chor';
+
+  room.players.forEach((player) => {
+    player.role = roles[player.id];
   });
 
+  room.gameState = 'playing';
+
+  const wazirId = shuffledPlayers[1].id;
+
+  io.to(roomId).emit('game-started', {
+    room,
+    roles,
+    wazirId
+  });
+});
   socket.on('disconnect', () => {
     console.log(`User Disconnected: ${socket.id}`);
     rooms.forEach((room, roomId) => {
