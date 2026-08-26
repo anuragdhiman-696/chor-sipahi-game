@@ -288,9 +288,9 @@ function App() {
   };
 
   const handleStartGame = () => {
-    if (currentRoom?.players?.length !== 4) return alert('Exactly 4 players are required to start.');
-    socket.emit('start-game', { roomCode: currentRoom.code });
-  };
+  if (currentRoom?.players?.length !== 4) return alert('Exactly 4 players are required to start.');
+  socket.emit('start-game', { roomId: currentRoom.code });
+};
 
   const handleMakeGuess = () => {
     if (!selectedTarget) return alert('Select a player to guess as Chor!');
