@@ -17,6 +17,7 @@
     <plugin name="cordova-plugin-android-permissions" spec="^1.1.5" />
 
     <platform name="android">
+        <icon src="res/icon.png" />
         <edit-config file="AndroidManifest.xml" mode="merge" target="/manifest/application">
             <application android:usesCleartextTraffic="true" />
         </edit-config>
