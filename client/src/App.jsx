@@ -638,16 +638,35 @@ const isSpectator = currentPlayer?.isSpectator === true;
                 const canTarget = isWazir && !isMe && gameState === 'GUESSING';
                 const showRole = gameState !== 'GUESSING' || isMe;
                 const isMuted = mutedPlayers[p.id];
-                
-                {/* Wazir Guess Control */}
-                {!isSpectator && isWazir && gameState === 'GUESSING' &&(
-                  <div className="wazir-controls">
-                    <p>You are the <strong>Wazir</strong>! Select a player and guess who holds the <strong>Chor</strong> role.</p>
-                    <button className="btn btn-primary" onClick={handleMakeGuess} disabled={!selectedTarget}>
-                      Confirm Guess
-                    </button>
-                  </div>
-                )}
+    
+
+          {/* Wazir Guess Control */}
+          {!isSpectator && isWazir && gameState === 'GUESSING' && (
+            <div className="wazir-controls">
+              <p>
+                You are the <strong>Wazir</strong>! Select a player and guess
+                who holds the <strong>Chor</strong> role.
+              </p>
+
+              <button
+                className="btn btn-primary"
+                onClick={handleMakeGuess}
+                disabled={!selectedTarget}
+              >
+                Confirm Guess
+              </button>
+            </div>
+          )}
+
+          {/* Round Controls */}
+          {gameState === 'ROUND_OVER' && isHost && (
+            <div className="host-controls">
+              <button className="btn btn-primary" onClick={handleNextRound}>
+                Next Round ➔
+              </button>
+            </div>
+          )}
+               
 
                 return (
                   <div
