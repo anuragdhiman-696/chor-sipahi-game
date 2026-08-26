@@ -4,9 +4,12 @@ import Peer from 'peerjs';
 import './App.css';
 
 // Change URL to match your Express server port (default 5000 or process.env.PORT)
-const SOCKET_SERVER_URL = 'http://localhost:4000';
+const SOCKET_SERVER_URL = 'http://localhost:5000'; // Match backend port
 
-const socket = io(SOCKET_SERVER_URL, { autoConnect: true });
+const socket = io(SOCKET_SERVER_URL, {
+  autoConnect: true,
+  transports: ['websocket', 'polling']
+});
 
 export default function App() {
   // Connection State
