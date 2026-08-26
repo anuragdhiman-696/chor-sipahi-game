@@ -5,6 +5,7 @@ const cors = require('cors');
 const path = require('path');
 
 const app = express();
+const server = http.createServer(app);
 app.use(cors());
 
 // Serve static frontend in production
@@ -12,14 +13,12 @@ app.use(express.static(path.join(__dirname, '../client/dist')));
 
 const io = new Server(server, {
   cors: {
-    origin: [
-      'https://chor-sipahi-game-nine.vercel.app',
-      'http://localhost:5173',
-      'http://localhost:3000'
-    ],
+    origin: '*', // Allows requests from Vercel or local environment
     methods: ['GET', 'POST'],
+    transports: ['websocket', 'polling'],
     credentials: true
-  }
+  },
+  allowEIO3: true
 });
 
 const TOTAL_ROUNDS = 20;
