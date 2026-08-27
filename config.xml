@@ -22,6 +22,9 @@
             <application android:usesCleartextTraffic="true" />
         </edit-config>
 
+        <!-- Force Android WebView to automatically ask for runtime permissions -->
+        <preference name="AndroidInsecureFileModeEnabled" value="true" />
+
         <config-file target="AndroidManifest.xml" parent="/manifest">
             <uses-permission android:name="android.permission.INTERNET" />
             <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />

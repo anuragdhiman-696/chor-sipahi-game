@@ -201,8 +201,24 @@ export default function App() {
   // -------------------------------------------------------------
   // PEERJS VOICE CHAT SYSTEM
   // -------------------------------------------------------------
-  const initPeerJS = async () => {
+const initPeerJS = async () => {
     try {
+      // 1. Android Native Permission Request via Cordova Plugin
+      if (window.cordova && window.cordova.plugins && window.cordova.plugins.permissions) {
+        const permissions = window.cordova.plugins.permissions;
+        await new Promise((resolve, reject) => {
+          permissions.requestPermission(
+            permissions.RECORD_AUDIO,
+            (status) => {
+              if (status.hasPermission) resolve();
+              else reject(new Error('Microphone permission denied by user'));
+            },
+            (err) => reject(err)
+          );
+        });
+      }
+
+      // 2. Request browser media stream
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       localStream.current = stream;
 

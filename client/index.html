@@ -5,8 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     
     <!-- Allow native WebViews to connect to Render and WebRTC STUN servers -->
-    <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: gap: content: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src * https://chor-sipahi-game.onrender.com wss://chor-sipahi-game.onrender.com wss://*.peerjs.com https://*.peerjs.com;" />
-    
+<meta http-equiv="Content-Security-Policy" 
+      content="default-src * 'unsafe-inline' 'unsafe-eval' data: gap: content: blob:; 
+               style-src 'self' 'unsafe-inline'; 
+               script-src 'self' 'unsafe-inline' 'unsafe-eval'; 
+               media-src * blob:; 
+               connect-src * https://chor-sipahi-game.onrender.com wss://chor-sipahi-game.onrender.com wss://*.peerjs.com https://*.peerjs.com;" />    
     <title>Chor Sipahi</title>
     <script src="cordova.js"></script>
   </head>
